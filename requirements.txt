@@ -4,3 +4,4 @@ xlrd
 openpyxl
 persiantools
 python-dateutil
+schedule
