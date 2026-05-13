@@ -5,3 +5,5 @@ openpyxl
 persiantools
 python-dateutil
 schedule
+pandas
+jdatetime

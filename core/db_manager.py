@@ -4,7 +4,7 @@ import sqlite3
 import logging
 from typing import Optional, List, Tuple
 
-# --- Setup logging for this module ---
+# Setup logging for this module
 # This helps in debugging and tracking database operations.
 log = logging.getLogger(__name__)
 

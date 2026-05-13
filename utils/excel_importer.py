@@ -1,67 +1,61 @@
-import openpyxl
+import pandas as pd
 import logging
-from typing import Tuple
-from core.db_manager import db_manager # Import the global DB manager instance
+#
+# !! CHANGE HERE !!
+# We import the CLASS, not an instance.
+from core.db_manager import DatabaseManager
 
-# Setup logging for this module
-log = logging.getLogger(__name__)
-
-
-def import_customers_from_excel(file_path: str) -> Tuple[int, int]:
+def import_customers_from_excel(file_path: str, db_manager: DatabaseManager) -> tuple[int, int]:
     """
-    Reads an Excel file and adds customer data to the database.
-
-    Assumes the Excel file has three columns in order:
-    Plate Number, Phone Number, Expiry Date (format YYYY/MM/DD).
+    Reads customer data from an Excel file and adds them to the database.
 
     Args:
-        file_path (str): The absolute path to the .xlsx file.
+        file_path (str): The path to the Excel file.
+        db_manager (DatabaseManager): An instance of the database manager to use.
 
     Returns:
-        Tuple[int, int]: A tuple containing (number of customers added, number of duplicates/failures).
+        tuple[int, int]: A tuple containing (successful_imports, failed_imports).
     """
-    added_count = 0
-    failed_count = 0
+    if not file_path:
+        return 0, 0
+
     try:
-        # Load the Excel workbook and select the active worksheet.
-        workbook = openpyxl.load_workbook(file_path)
-        sheet = workbook.active
+        df = pd.read_excel(file_path)
 
-        # Iterate over all rows in the sheet, starting from the second row to skip headers.
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            # Ensure the row has at least 3 columns to avoid errors.
-            if len(row) < 3:
-                failed_count += 1
-                continue
+        # Ensure required columns exist
+        required_columns = ['name', 'phone', 'car_model', 'car_id', 'last_service_date', 'inspection_expiry_date']
+        if not all(col in df.columns for col in required_columns):
+            logging.error(f"Excel file is missing one of the required columns: {required_columns}")
+            return 0, len(df)
 
-            # Extract data, converting to string and stripping whitespace.
-            plate = str(row[0]).strip()
-            phone = str(row[1]).strip()
-            expire_date = str(row[2]).strip() # Assuming date is already in 'YYYY/MM/DD' text format
+        successful_imports = 0
+        failed_imports = 0
 
-            # Basic validation to ensure essential data is not empty.
-            if not plate or not phone or not expire_date:
-                log.warning(f"Skipping row with missing data: {row}")
-                failed_count += 1
-                continue
-
-            # Attempt to add the customer to the database.
-            # The db_manager's add_customer handles duplicate prevention.
-            if db_manager.add_customer(plate, phone, expire_date):
-                added_count += 1
-            else:
-                # This could be a duplicate or a database error.
-                log.warning(f"Failed to add or duplicate customer: {plate}, {phone}")
-                failed_count += 1
-                
-        log.info(f"Excel import complete. Added: {added_count}, Skipped/Duplicates: {failed_count}")
+        for _, row in df.iterrows():
+            try:
+                # Add customer using the provided db_manager instance
+                is_added = db_manager.add_customer(
+                    name=row['name'],
+                    phone=str(row['phone']),
+                    car_model=row['car_model'],
+                    car_id=str(row['car_id']),
+                    last_service_date=str(row['last_service_date']),
+                    inspection_expiry_date=str(row['inspection_expiry_date'])
+                )
+                if is_added:
+                    successful_imports += 1
+                else:
+                    failed_imports += 1 # Likely a duplicate
+            except Exception as e:
+                logging.warning(f"Could not process row {row.to_dict()}: {e}")
+                failed_imports += 1
+        
+        logging.info(f"Import finished. Successful: {successful_imports}, Failed/Duplicates: {failed_imports}")
+        return successful_imports, failed_imports
 
     except FileNotFoundError:
-        log.error(f"Excel file not found at path: {file_path}")
+        logging.error(f"Excel file not found at path: {file_path}")
         return 0, 0
     except Exception as e:
-        # Catch any other unexpected errors during file processing.
-        log.error(f"An error occurred during Excel import: {e}", exc_info=True)
-        return added_count, failed_count
-        
-    return added_count, failed_count
+        logging.error(f"An unexpected error occurred during Excel import: {e}")
+        return 0, 0

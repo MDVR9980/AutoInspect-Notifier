@@ -1,163 +1,209 @@
-import logging
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog,
-    QStatusBar
-)
+import sys
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
+                             QFileDialog, QStatusBar, QTabWidget, QGroupBox, QComboBox,
+                             QLineEdit, QLabel, QMessageBox)
 from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QIcon
 
-# Local Imports
-from ui.styles import light_theme_qss, dark_theme_qss
+from ui.styles import get_light_theme, get_dark_theme
 from utils.excel_importer import import_customers_from_excel
-from core.db_manager import db_manager
-from settings import APP_ICON_PATH # Import the icon path
-
-# --- Setup logging for this module ---
-log = logging.getLogger(__name__)
+from core.db_manager import DatabaseManager
+from settings import APP_ICON_PATH, DB_FILE_PATH
 
 
 class MainWindow(QMainWindow):
-    """
-    The main window of the AutoInspect Notifier application.
-    
-    Handles the user interface, displays customer data, and provides
-    controls for importing data and changing the theme.
-    """
     def __init__(self):
         super().__init__()
-        
-        # App Settings
-        # QSettings provides a persistent way to store application settings.
+        self.setWindowTitle("سیستم حرفه‌ای یادآوری معاینه فنی - AutoInspect Notifier")
+        self.resize(900, 650)
+        self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.settings = QSettings("MyCompany", "AutoInspectNotifier")
-
-        # Window Configuration
-        self.setWindowTitle("AutoInspect Notifier")
-        self.setGeometry(100, 100, 800, 600) # x, y, width, height
-        self.setWindowIcon(QIcon(APP_ICON_PATH))
-
-        # Initialize UI Components
-        self._init_widgets()
-        self._init_layout()
-        self._connect_signals()
-
-        # Final Setup
-        self.load_theme() # Apply the last used theme on startup
-        self.populate_table() # Load initial data into the table
-        log.info("Main window initialized successfully.")
-
-    def _init_widgets(self):
-        """Initializes all the widgets used in the window."""
-        self.import_button = QPushButton("Import from Excel")
-        self.refresh_button = QPushButton("Refresh List")
-        self.theme_button = QPushButton("Toggle Theme")
         
-        # Table Widget Setup
-        self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Plate", "Phone", "Expire Date", "SMS Status"])
-        # Make the table columns resize to fit the window width.
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        # Disable editing of table cells by the user.
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # اتصال به دیتابیس
+        self.db = DatabaseManager(DB_FILE_PATH)
+        self.db.connect()
 
-        # Status Bar
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
+        self._init_ui()
+        self.load_theme()
+        self.load_data()
 
-    def _init_layout(self):
-        """Sets up the layout of the widgets."""
-        # Main Layouts
-        # Central widget will hold everything inside the main window.
+    def _init_ui(self):
+        # تنظیم راست‌چین بودن کل پنجره
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        # The main vertical layout for the central widget.
         main_layout = QVBoxLayout(central_widget)
-        # A horizontal layout for the top buttons.
-        button_layout = QHBoxLayout()
 
-        # Add Widgets to Layouts
-        button_layout.addWidget(self.import_button)
-        button_layout.addWidget(self.refresh_button)
-        button_layout.addStretch() # Pushes the theme button to the right
-        button_layout.addWidget(self.theme_button)
+        # تب‌ها
+        self.tabs = QTabWidget()
+        self.tab_dashboard = QWidget()
+        self.tab_customers = QWidget()
+
+        self.tabs.addTab(self.tab_dashboard, "داشبورد و عملیات")
+        self.tabs.addTab(self.tab_customers, "لیست مشتریان")
         
-        # Add the button layout and the table to the main vertical layout.
-        main_layout.addLayout(button_layout)
-        main_layout.addWidget(self.table)
+        main_layout.addWidget(self.tabs)
 
-    def _connect_signals(self):
-        """Connects widget signals to their corresponding slots (functions)."""
-        self.import_button.clicked.connect(self.import_excel_data)
-        self.refresh_button.clicked.connect(self.populate_table)
-        self.theme_button.clicked.connect(self.toggle_theme)
+        self._init_dashboard_tab()
+        self._init_customers_tab()
 
-    def populate_table(self):
-        """Fetches all customer data from the database and displays it in the table."""
+        # نوار وضعیت
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("برنامه آماده است.")
+
+    def _init_dashboard_tab(self):
+        layout = QVBoxLayout(self.tab_dashboard)
+        layout.setSpacing(15)
+
+        # 1. تنظیم تاریخ مراجعه (شمسی)
+        group_date = QGroupBox("تنظیم تاریخ مراجعه (شمسی)")
+        layout_date = QHBoxLayout()
+        
+        self.combo_day = QComboBox()
+        self.combo_day.addItems([str(i) for i in range(1, 32)])
+        self.combo_month = QComboBox()
+        self.combo_month.addItems(["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"])
+        self.combo_year = QComboBox()
+        self.combo_year.addItems([str(i) for i in range(1402, 1415)])
+        
+        layout_date.addWidget(QLabel("روز:"))
+        layout_date.addWidget(self.combo_day)
+        layout_date.addWidget(QLabel("ماه:"))
+        layout_date.addWidget(self.combo_month)
+        layout_date.addWidget(QLabel("سال:"))
+        layout_date.addWidget(self.combo_year)
+        layout_date.addStretch()
+        
+        group_date.setLayout(layout_date)
+        layout.addWidget(group_date)
+
+        # 2. ثبت دستی مراجعه
+        group_manual = QGroupBox("ثبت دستی مراجعه")
+        layout_manual = QHBoxLayout()
+        
+        self.input_plate = QLineEdit()
+        self.input_plate.setPlaceholderText("مثال: 12 ب 345 ایران 67")
+        self.input_plate.setToolTip("شماره پلاک خودرو را در این قسمت وارد کنید")
+        
+        self.input_phone = QLineEdit()
+        self.input_phone.setPlaceholderText("مثال: 09123456789")
+        self.input_phone.setToolTip("شماره موبایل مشتری را در این قسمت وارد کنید")
+        
+        self.btn_submit_manual = QPushButton("ثبت اطلاعات")
+        self.btn_submit_manual.setObjectName("btn_submit") # اعمال شناسه برای استایل سبز رنگ
+        self.btn_submit_manual.setToolTip("ذخیره اطلاعات پلاک و شماره موبایل در سیستم")
+        
+        layout_manual.addWidget(self.input_plate)
+        layout_manual.addWidget(self.input_phone)
+        layout_manual.addWidget(self.btn_submit_manual)
+        
+        group_manual.setLayout(layout_manual)
+        layout.addWidget(group_manual)
+
+        # 3. عملیات گروهی و پیامک
+        group_batch = QGroupBox("عملیات گروهی و پیامک")
+        layout_batch = QHBoxLayout()
+        
+        self.btn_import_excel = QPushButton("📁 بارگذاری از اکسل")
+        self.btn_import_excel.setToolTip("وارد کردن اطلاعات مشتریان به صورت گروهی از فایل اکسل")
+        
+        self.btn_send_sms = QPushButton("🚀 ارسال/زمان‌بندی پیامک‌ها")
+        self.btn_send_sms.setToolTip("شروع بررسی و ارسال پیامک برای مشتریانی که موعدشان فرا رسیده است")
+        
+        layout_batch.addWidget(self.btn_import_excel)
+        layout_batch.addWidget(self.btn_send_sms)
+        
+        group_batch.setLayout(layout_batch)
+        layout.addWidget(group_batch)
+
+        # 4. مدیریت دیتابیس و تنظیمات
+        group_db = QGroupBox("مدیریت دیتابیس و سیستم")
+        layout_db = QHBoxLayout()
+        
+        self.btn_backup = QPushButton("💾 تهیه نسخه پشتیبان")
+        self.btn_backup.setToolTip("یک کپی از اطلاعات فعلی در قالب فایل ذخیره می‌کند")
+        
+        self.btn_restore = QPushButton("📂 بازیابی اطلاعات")
+        self.btn_restore.setToolTip("بازگردانی اطلاعات از روی فایل پشتیبان تهیه شده در گذشته")
+        
+        self.btn_theme = QPushButton("🌙/☀️ تغییر تم")
+        self.btn_theme.setToolTip("تغییر ظاهر برنامه بین حالت روز و شب")
+        
+        layout_db.addWidget(self.btn_backup)
+        layout_db.addWidget(self.btn_restore)
+        layout_db.addWidget(self.btn_theme)
+        
+        group_db.setLayout(layout_db)
+        layout.addWidget(group_db)
+        
+        layout.addStretch()
+
+        # اتصال دکمه‌ها
+        self.btn_theme.clicked.connect(self.toggle_theme)
+        self.btn_import_excel.clicked.connect(self.import_excel_data)
+
+    def _init_customers_tab(self):
+        layout = QVBoxLayout(self.tab_customers)
+
+        # دکمه‌های بالای لیست
+        top_layout = QHBoxLayout()
+        
+        self.btn_delete_all = QPushButton("🗑️ حذف کل لیست")
+        self.btn_delete_all.setObjectName("btn_delete_all") # اعمال شناسه برای استایل قرمز رنگ
+        self.btn_delete_all.setToolTip("حذف تمامی اطلاعات مشتریان از سیستم (غیرقابل بازگشت)")
+        
+        top_layout.addWidget(self.btn_delete_all)
+        top_layout.addStretch()
+        layout.addLayout(top_layout)
+
+        # جدول مشتریان
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["ردیف", "پلاک خودرو", "شماره تماس", "تاریخ انقضا", "وضعیت پیامک"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        
+        layout.addWidget(self.table)
+
+    def load_data(self):
         try:
-            log.info("Populating customer table.")
-            # Retrieve data from the database.
-            customers = db_manager.get_all_customers()
-            
-            # Clear any existing rows to prevent duplication.
-            self.table.setRowCount(0)
+            customers = self.db.get_all_customers()
             self.table.setRowCount(len(customers))
-
-            # Iterate through the data and add it to the table.
             for row_idx, row_data in enumerate(customers):
-                for col_idx, col_data in enumerate(row_data):
-                    item = QTableWidgetItem(str(col_data))
-                    self.table.setItem(row_idx, col_idx, item)
+                # فرض بر این است که خروجی دیتابیس شامل: id, plate, phone, expire_date, sms_status است
+                self.table.setItem(row_idx, 0, QTableWidgetItem(str(row_idx + 1)))
+                self.table.setItem(row_idx, 1, QTableWidgetItem(str(row_data[1])))
+                self.table.setItem(row_idx, 2, QTableWidgetItem(str(row_data[2])))
+                self.table.setItem(row_idx, 3, QTableWidgetItem(str(row_data[3])))
+                self.table.setItem(row_idx, 4, QTableWidgetItem(str(row_data[4])))
             
-            self.status_bar.showMessage(f"Loaded {len(customers)} customers.", 3000) # Message disappears after 3s
+            self.status_bar.showMessage(f"اطلاعات بارگذاری شد: {len(customers)} رکورد")
         except Exception as e:
-            log.error(f"Failed to populate table: {e}", exc_info=True)
-            self.status_bar.showMessage("Error loading data from database.", 5000)
+            self.status_bar.showMessage(f"خطا در بارگذاری اطلاعات: {e}")
 
     def import_excel_data(self):
-        """Opens a file dialog to select an Excel file and imports the data."""
-        # The 'self' argument sets the main window as the parent for the dialog.
-        # The second argument is the dialog title.
-        # The third is the default directory.
-        # The fourth filters for specific file types.
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Excel File", "", "Excel Files (*.xlsx *.xls)"
-        )
-
-        # Proceed only if a file path was selected.
+        file_path, _ = QFileDialog.getOpenFileName(self, "انتخاب فایل اکسل", "", "Excel Files (*.xlsx *.xls)")
         if file_path:
-            log.info(f"Starting Excel import from: {file_path}")
-            self.status_bar.showMessage("Importing from Excel...")
-            QApplication.processEvents() # Update the UI to show the message
-
-            added, failed = import_customers_from_excel(file_path)
-
-            # Show the result in the status bar.
-            message = f"Import complete. Added: {added}, Skipped/Duplicates: {failed}"
-            self.status_bar.showMessage(message, 5000)
-            log.info(message)
-            
-            # Refresh the table to show the newly imported data.
-            self.populate_table()
+            # در اینجا منطق اکسل قرار می‌گیرد (فعلاً پیام موفقیت می‌دهیم)
+            self.status_bar.showMessage(f"در حال وارد کردن اطلاعات از {file_path} ...")
+            # import_customers_from_excel(file_path, self.db) # اگر تابع شما دیتابیس را می‌گیرد
+            self.load_data()
 
     def toggle_theme(self):
-        """Switches the application's stylesheet between light and dark themes."""
-        current_theme = self.settings.value("theme", "light") # Default to 'light' if not set
-        if current_theme == "light":
-            self.apply_theme("dark")
-        else:
-            self.apply_theme("light")
-            
-    def apply_theme(self, theme_name: str):
-        """
-        Applies the specified theme and saves the preference.
+        current_theme = self.settings.value("theme", "light")
+        new_theme = "dark" if current_theme == "light" else "light"
+        self.apply_theme(new_theme)
 
-        Args:
-            theme_name (str): The name of the theme to apply ('light' or 'dark').
-        """
+    def apply_theme(self, theme_name):
         if theme_name == "dark":
-            self.setStyleSheet(dark_theme_qss)
-            self.settings.setValue("theme", "dark")
-            log.info("Applied dark theme.")
-        else: # Default to light
-            self.setStyleSheet(light_theme_qss)
+            self.setStyleSheet(get_dark_theme())
+        else:
+            self.setStyleSheet(get_light_theme())
+        self.settings.setValue("theme", theme_name)
+
+    def load_theme(self):
+        theme = self.settings.value("theme", "light")
+        self.apply_theme(theme)

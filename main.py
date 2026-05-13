@@ -1,18 +1,15 @@
-# autoinspect-notifier/main.py
-
 import sys
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-
 from PyQt6.QtWidgets import QApplication
 
-# --- Local Imports ---
+# Local Imports
 from settings import DATA_DIR, BACKUP_DIR, LOG_DIR, LOG_FILE_PATH
 from ui.main_window import MainWindow
-from tasks.scheduler import start_scheduler_in_thread
-from core.db_manager import db_manager
-
+from tasks.scheduler import start_scheduler
+from core.db_manager import DatabaseManager
+from settings import DB_FILE_PATH
 
 def setup_logging():
     """
@@ -24,25 +21,25 @@ def setup_logging():
     # Create the logs directory if it doesn't exist.
     LOG_DIR.mkdir(exist_ok=True)
 
-    # --- Create a logger instance ---
+    # Create a logger instance
     # Get the root logger. All other loggers in the app will inherit from this.
     log = logging.getLogger()
     log.setLevel(logging.INFO) # Set the minimum level of messages to handle.
 
-    # --- Create a formatter ---
+    # Create a formatter
     # Defines the format of the log messages.
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    # --- Console Handler ---
+    # Console Handler
     # Sends log messages to the standard output (the console).
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     log.addHandler(console_handler)
 
-    # --- File Handler ---
+    # File Handler
     # Writes log messages to a file.
     # RotatingFileHandler manages log files, creating new ones when they reach a certain size.
     file_handler = RotatingFileHandler(
@@ -79,11 +76,13 @@ def main():
     ensure_directories_exist()
 
     # 3. Initialize the database connection and tables.
-    db_manager.initialize()
-
+    db_manager = DatabaseManager(DB_FILE_PATH)
+    db_manager.connect()
+    db_manager.create_table()   
+    
     # 4. Start the background scheduler thread.
     # This will handle daily SMS checks and backups without freezing the UI.
-    scheduler_thread = start_scheduler_in_thread()
+    scheduler_thread = start_scheduler()
     logging.info("Background scheduler started.")
 
     # 5. Create and run the PyQt application.

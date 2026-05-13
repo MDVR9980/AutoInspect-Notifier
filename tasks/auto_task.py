@@ -1,97 +1,106 @@
+# tasks/auto_task.py
+
 import logging
-from datetime import datetime, timedelta
-from typing import List, Tuple
+from persiantools.jdatetime import JalaliDate
+import jdatetime
 
-# Import core components
-from ..core.db_manager import DatabaseManager
-from ..core.sms_api import SmsApiClient
+# 1. استفاده از import های مطلق برای رفع خطای ImportError
+from core.db_manager import DatabaseManager
+from core.sms_api import SmsApiClient, sms_client # sms_client سراسری را هم وارد می‌کنیم
+import settings
 
-# Setup logging for this module
+# لاگ‌گیری برای این ماژول
 log = logging.getLogger(__name__)
 
 
 class TaskManager:
     """
-    Manages the automated task of checking for upcoming expirations
-    and sending SMS notifications.
+    وظیفه خودکار بررسی تاریخ انقضای معاینه فنی و ارسال پیامک
+    در همان روز انقضا را مدیریت می‌کند.
     """
 
-    def __init__(self, db_manager: DatabaseManager, sms_client: SmsApiClient):
+    def __init__(self, db_manager: DatabaseManager, sms_api_client: SmsApiClient):
         """
-        Initializes the TaskManager.
+        سازنده کلاس TaskManager.
 
         Args:
-            db_manager (DatabaseManager): An instance for database operations.
-            sms_client (SmsApiClient): An instance for sending messages.
+            db_manager (DatabaseManager): یک نمونه برای کار با دیتابیس.
+            sms_api_client (SmsApiClient): یک نمونه برای ارسال پیامک.
         """
         self.db_manager = db_manager
-        self.sms_client = sms_client
+        self.sms_client = sms_api_client
 
-    def check_and_send_reminders(self, days_before_expiry: int = 7) -> None:
+    def process_daily_notifications(self) -> None:
         """
-        Fetches customers whose inspection is expiring soon and sends them a reminder.
+        مشتریانی که تاریخ انقضای معاینه فنی آن‌ها امروز است را پیدا کرده
+        و برای آن‌ها پیامک ارسال می‌کند.
+        """
+        log.info("شروع وظیفه روزانه ارسال پیامک...")
+        
+        # 2. استفاده از تاریخ شمسی (Jalali) به جای میلادی
+        today_jalali_str = JalaliDate(jdatetime.date.today()).strftime('%Y-%m-%d')
+        
+        # مشتریانی که تاریخ انقضای آن‌ها امروز است را مستقیماً از دیتابیس می‌خوانیم
+        customers_to_notify = self.db_manager.get_customers_for_sms(today_jalali_str)
+        
+        if not customers_to_notify:
+            log.info(f"برای تاریخ {today_jalali_str} هیچ مشتری نیاز به اطلاع‌رسانی ندارد. پایان کار.")
+            return
 
-        Args:
-            days_before_expiry (int): Days before expiry to send a notification.
-        """
-        log.info("Starting scheduled task: Check and send reminders.")
-        try:
-            self.db_manager.connect()
+        log.info(f"امروز {len(customers_to_notify)} مشتری برای اطلاع‌رسانی پیدا شد.")
+
+        for customer in customers_to_notify:
+            customer_id, name, phone, car_model, car_id, _, expiry_date, _ = customer
             
-            all_customers = self.db_manager.get_all_customers()
-            if not all_customers:
-                log.info("No customers found in the database. Task finished.")
-                return
+            # ساخت پیام
+            message = self._create_reminder_message(name, car_model, car_id, expiry_date)
+            
+            # ارسال پیامک
+            is_sent = self.sms_client.send_sms(phone, message)
+            
+            # به‌روزرسانی وضعیت در دیتابیس
+            if is_sent:
+                self.db_manager.update_sms_status(customer_id, 'sent')
+                log.info(f"پیامک برای {name} ({phone}) با موفقیت ارسال و وضعیت به‌روز شد.")
+            else:
+                self.db_manager.update_sms_status(customer_id, 'failed')
+                log.warning(f"ارسال پیامک برای {name} ({phone}) ناموفق بود. وضعیت 'failed' ثبت شد.")
 
-            customers_to_notify = self._filter_customers_for_notification(all_customers, days_before_expiry)
-            if not customers_to_notify:
-                log.info("No customers require notification today. Task finished.")
-                return
-
-            log.info(f"Found {len(customers_to_notify)} customers to notify.")
-
-            for customer in customers_to_notify:
-                plate, phone, expiry_date, _ = customer
-                message = self._create_reminder_message(plate, expiry_date)
-                response = self.sms_client.send_sms(receptor=phone, message=message)
-                
-                # Update status based on API response
-                if response and response.get('result', {}).get('status') == 'success':
-                    self.db_manager.update_customer_status(plate, 'Sent')
-                else:
-                    self.db_manager.update_customer_status(plate, 'Failed')
-
-        except Exception as e:
-            log.error(f"An error occurred during the reminder task: {e}")
-        finally:
-            self.db_manager.close()
-            log.info("Reminder task finished.")
-
-    def _filter_customers_for_notification(self, customers: List[Tuple], days_before: int) -> List[Tuple]:
-        """Filters customers whose expiry date is exactly 'days_before' from now."""
-        today = datetime.now().date()
-        notification_date = today + timedelta(days=days_before)
-        
-        filtered_list = []
-        for customer in customers:
-            plate, _, expiry_date_str, status = customer
-            try:
-                expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
-                # Notify if expiry is on the target date and SMS has not been sent successfully yet.
-                if expiry_date == notification_date and status.lower() != 'sent':
-                    filtered_list.append(customer)
-            except ValueError:
-                log.warning(f"Invalid date format for customer with plate {plate}: '{expiry_date_str}'.")
-        
-        return filtered_list
-
-    def _create_reminder_message(self, plate_number: str, expiry_date: str) -> str:
-        """Creates a formatted SMS reminder message."""
+    def _create_reminder_message(self, name: str, car_model: str, car_id: str, expiry_date: str) -> str:
+        """یک پیام یادآوری استاندارد ایجاد می‌کند."""
         message = (
-            f"مشتری گرامی،\n"
-            f"تاریخ انقضای معاینه فنی خودروی شما به شماره پلاک {plate_number} "
-            f"در تاریخ {expiry_date} به پایان می‌رسد.\n"
-            f"لطفا جهت تمدید اقدام فرمایید.\n"
-            f"[نام مرکز شما]"
+            f"سلام {name} عزیز،\n"
+            f"تاریخ معاینه فنی خودروی شما ({car_model} به شماره پلاک {car_id}) "
+            f"امروز ({expiry_date}) به پایان می‌رسد.\n"
+            f"لطفا جهت تمدید آن اقدام فرمایید."
         )
         return message
+
+# --- نقطه ورود برای Scheduler ---
+
+def run_notification_task():
+    """
+    این تابع توسط زمان‌بند (scheduler) فراخوانی می‌شود.
+    این تابع مسئولیت ایجاد و پاک‌سازی منابع (مانند اتصال دیتابیس) را برای
+    هر بار اجرای وظیفه بر عهده دارد تا از مشکلات مربوط به thread جلوگیری شود.
+    """
+    log.info("زمان‌بند فعال شد: در حال اجرای وظیفه اطلاع‌رسانی.")
+    db_manager_instance = None
+    try:
+        # برای هر بار اجرا، یک نمونه جدید از DatabaseManager می‌سازیم.
+        # این کار برای اجرای امن در ترد (thread) ضروری است.
+        db_manager_instance = DatabaseManager(db_path=settings.DB_FILE_PATH)
+        
+        # از نمونه سراسری sms_client که قبلاً ساخته شده استفاده می‌کنیم
+        task_manager = TaskManager(db_manager=db_manager_instance, sms_api_client=sms_client)
+        
+        # اجرای منطق اصلی
+        task_manager.process_daily_notifications()
+
+    except Exception as e:
+        log.error(f"خطای پیش‌بینی نشده در اجرای وظیفه اطلاع‌رسانی: {e}", exc_info=True)
+    finally:
+        # تضمین می‌کنیم که اتصال دیتابیس در هر صورت بسته شود.
+        if db_manager_instance:
+            db_manager_instance.close()
+        log.info("اجرای وظیفه اطلاع‌رسانی تمام شد. منابع پاک‌سازی شدند.")

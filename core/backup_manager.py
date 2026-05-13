@@ -2,7 +2,8 @@ import os
 import shutil
 import logging
 from datetime import datetime
-from settings import DB_PATH, BACKUP_DIR # Import paths from the central settings file
+from settings import DB_FILE_PATH, BACKUP_DIR # Import paths from the central settings file
+from typing import Optional
 
 # Setup logging for this module
 log = logging.getLogger(__name__)
@@ -81,4 +82,4 @@ class BackupManager:
 
 # Global Instance
 # Create a single, reusable instance of the manager using paths from settings.
-backup_manager = BackupManager(db_path=DB_PATH, backup_dir=BACKUP_DIR)
+backup_manager = BackupManager(db_path=DB_FILE_PATH, backup_dir=BACKUP_DIR)

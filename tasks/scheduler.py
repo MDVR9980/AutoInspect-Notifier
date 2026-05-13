@@ -2,7 +2,7 @@ import schedule
 import time
 import logging
 import threading
-from tasks.auto_task import process_sms_notifications # Import the SMS task
+from tasks.auto_task import run_notification_task # Import the SMS task
 from core.backup_manager import backup_manager       # Import the backup manager instance
 
 # Setup logging for this module
@@ -34,7 +34,7 @@ def start_scheduler():
 
     # Schedule the SMS notification process to run every day at a specific time.
     # The time '10:00' can be adjusted as needed.
-    schedule.every().day.at("10:00").do(process_sms_notifications)
+    schedule.every().day.at("10:00").do(run_notification_task)
     log.info("Scheduled daily SMS check at 10:00.")
 
     # Schedule the database backup process to run every day at a different time.

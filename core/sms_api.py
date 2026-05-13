@@ -2,7 +2,7 @@
 
 import requests
 import logging
-from settings import SMS_API_KEY # Import the API key from the central settings file
+from settings import GHASDAK_API_KEY # Import the API key from the central settings file
 
 # --- Setup logging for this module ---
 log = logging.getLogger(__name__)
@@ -78,4 +78,4 @@ class SmsApiClient:
 # --- Global Instance ---
 # Create a single, reusable instance of the client using the key from settings.
 # This instance can be imported and used by other parts of the application.
-sms_client = SmsApiClient(api_key=SMS_API_KEY)
+sms_client = SmsApiClient(api_key=GHASDAK_API_KEY)
