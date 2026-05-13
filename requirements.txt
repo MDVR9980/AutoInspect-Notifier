@@ -1,0 +1,6 @@
+PyQt6
+requests
+xlrd
+openpyxl
+persiantools
+python-dateutil
