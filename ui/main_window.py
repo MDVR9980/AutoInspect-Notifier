@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import (
     QMessageBox, QFileDialog, QGroupBox, QFormLayout, QHeaderView,
     QStatusBar, QToolBar, QDialog, QDialogButtonBox, QTextEdit, QBoxLayout
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QRegularExpression
+from PyQt6.QtGui import QIcon, QFont, QAction, QRegularExpressionValidator
 
 from core.db_manager import DatabaseManager
 from core.sms_api import SMSManager
@@ -60,6 +60,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("AutoInspect Notifier - سیستم یادآوری معاینه فنی")
         self.setGeometry(100, 100, 1200, 700)
         
+        app_font = QFont("Vazirmatn", 10)
+        self.setFont(app_font)
+
         # ویجت مرکزی
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -221,7 +224,7 @@ class MainWindow(QMainWindow):
 
         # پلاک
         self.plate_input = QLineEdit()
-        self.plate_input.setPlaceholderText("12 الف 123 ایران 12")
+        self.plate_input.setPlaceholderText("الف 123 ایران 12")
 
         # =========================
         # تاریخ مراجعه (شمسی)
@@ -257,6 +260,26 @@ class MainWindow(QMainWindow):
         form_layout.addRow("پلاک:", self.plate_input)
         form_layout.addRow("تاریخ مراجعه:", date_layout)
 
+        # اعتبارسنجی شماره موبایل (فقط ۱۱ رقم و شروع با 09)
+        phone_regex = QRegularExpression(r"^09\d{9}$")
+        self.phone_input.setValidator(QRegularExpressionValidator(phone_regex))
+        self.phone_input.setMaxLength(11)
+
+        # اعتبارسنجی روز (۱ تا ۳۱)
+        day_regex = QRegularExpression(r"^(0?[1-9]|[12][0-9]|3[01])$")
+        self.day_combo.setValidator(QRegularExpressionValidator(day_regex))
+        self.day_combo.setMaxLength(2)
+
+        # اعتبارسنجی ماه (۱ تا ۱۲)
+        month_regex = QRegularExpression(r"^(0?[1-9]|1[012])$")
+        self.month_combo.setValidator(QRegularExpressionValidator(month_regex))
+        self.month_combo.setMaxLength(2)
+
+        # اعتبارسنجی سال (۴ رقم، مثلا شروع با 14)
+        year_regex = QRegularExpression(r"^14\d{2}$")
+        self.year_combo.setValidator(QRegularExpressionValidator(year_regex))
+        self.year_combo.setMaxLength(4)
+
         # دکمه ثبت
         self.add_button = QPushButton("✅ ثبت مشترک")
         self.add_button.clicked.connect(self.add_subscriber)
@@ -289,24 +312,66 @@ class MainWindow(QMainWindow):
         # مسیر فایل
         self.excel_path_input = QLineEdit()
         self.excel_path_input.setReadOnly(True)
-        
+
         browse_button = QPushButton("📂 انتخاب فایل")
         browse_button.clicked.connect(self.select_excel_file)
         
         file_layout = QHBoxLayout()
         file_layout.addWidget(self.excel_path_input)
         file_layout.addWidget(browse_button)
+
+        # =========================
+        # تاریخ مراجعه (شمسی) برای اکسل
+        # =========================
+        date_layout = QHBoxLayout()
+
+        # روز
+        self.excel_day_combo = QLineEdit()
+        self.excel_day_combo.setPlaceholderText("روز")
+        self.excel_day_combo.setFixedWidth(70)
         
-        # تاریخ مراجعه
-        self.excel_visit_date_input = QLineEdit()
-        self.excel_visit_date_input.setPlaceholderText("1405/02/24")
-        
+        # ماه
+        self.excel_month_combo = QLineEdit()
+        self.excel_month_combo.setPlaceholderText("ماه")
+        self.excel_month_combo.setFixedWidth(70)
+
+        # سال
+        self.excel_year_combo = QLineEdit()
+        self.excel_year_combo.setPlaceholderText("سال")
+        self.excel_year_combo.setFixedWidth(90)
+
+        # افزودن ویجت‌ها به لی‌اوت تاریخ
+        date_layout.addWidget(self.excel_year_combo)
+        date_layout.addWidget(QLabel("/"))
+        date_layout.addWidget(self.excel_month_combo)
+        date_layout.addWidget(QLabel("/"))
+        date_layout.addWidget(self.excel_day_combo)
+
+        # =========================
+        # اعتبارسنجی فیلدهای تاریخ
+        # =========================
+
+        # اعتبارسنجی روز (۱ تا ۳۱)
+        day_regex = QRegularExpression(r"^(0?[1-9]|[12][0-9]|3[01])$")
+        self.excel_day_combo.setValidator(QRegularExpressionValidator(day_regex))
+        self.excel_day_combo.setMaxLength(2)
+
+        # اعتبارسنجی ماه (۱ تا ۱۲)
+        month_regex = QRegularExpression(r"^(0?[1-9]|1[012])$")
+        self.excel_month_combo.setValidator(QRegularExpressionValidator(month_regex))
+        self.excel_month_combo.setMaxLength(2)
+
+        # اعتبارسنجی سال (۴ رقم، مثلا شروع با 14)
+        year_regex = QRegularExpression(r"^14\d{2}$")
+        self.excel_year_combo.setValidator(QRegularExpressionValidator(year_regex))
+        self.excel_year_combo.setMaxLength(4)
+
         # دکمه ورود
         self.import_button = QPushButton("⬆ ورود اطلاعات")
         self.import_button.clicked.connect(self.import_excel_data)
         
         form_layout.addRow("فایل اکسل:", file_layout)
-        form_layout.addRow("تاریخ مراجعه:", self.excel_visit_date_input)
+        form_layout.addRow("تاریخ مراجعه:", date_layout)
         form_layout.addRow(self.import_button)
         
         group_box.setLayout(form_layout)
@@ -480,16 +545,23 @@ class MainWindow(QMainWindow):
     def import_excel_data(self):
         """ورود داده‌ها از اکسل"""
         file_path = self.excel_path_input.text().strip()
-        visit_date = self.excel_visit_date_input.text().strip()
-        
+        # visit_date = self.excel_visit_date_input.text().strip()
+
+        # دریافت تاریخ از ورودی‌های جدید
+        year = self.excel_year_combo.text().strip()
+        month = self.excel_month_combo.text().strip()
+        day = self.excel_day_combo.text().strip()
+
         if not file_path:
             self.show_warning("خطا", "فایل اکسل را انتخاب کنید")
             return
         
-        if not visit_date:
-            self.show_warning("خطا", "تاریخ مراجعه را وارد کنید")
+        if not year or not month or not day:
+            self.show_warning("خطا", "لطفا تاریخ مراجعه را به صورت کامل (سال، ماه، روز) وارد کنید")
             return
         
+        visit_date = f"{year}/{month}/{day}"
+
         try:
             # ابتدا داده‌ها را بخوانید
             success_read, data, msg = self.excel_importer.read_excel(file_path)
@@ -520,9 +592,6 @@ class MainWindow(QMainWindow):
                 "نتیجه ورود",
                 f"✅ موفق: {success_count}\n❌ خطا: {error_count}"
             )
-            
-            self.excel_path_input.clear()
-            self.excel_visit_date_input.clear()
             
             self.load_subscribers()
         
