@@ -211,41 +211,67 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout()
         widget.setLayout(layout)
-        
+
         group_box = QGroupBox("ثبت مشترک جدید")
         form_layout = QFormLayout()
-        
+
         # شماره موبایل
         self.phone_input = QLineEdit()
         self.phone_input.setPlaceholderText("09123456789")
-        
+
         # پلاک
         self.plate_input = QLineEdit()
         self.plate_input.setPlaceholderText("12 الف 123 ایران 12")
-        
-        # تاریخ مراجعه
-        self.visit_date_input = QLineEdit()
-        self.visit_date_input.setPlaceholderText("1405/02/24")
-        
+
+        # =========================
+        # تاریخ مراجعه (شمسی)
+        # =========================
+        date_layout = QHBoxLayout()
+
+        # روز
+        self.day_combo = QLineEdit()
+        self.day_combo.setPlaceholderText("روز")
+        self.day_combo.setFixedWidth(70)
+
+        # ماه
+        self.month_combo = QLineEdit()
+        self.month_combo.setPlaceholderText("ماه")
+        self.month_combo.setFixedWidth(70)
+
+        # سال
+        self.year_combo = QLineEdit()
+        self.year_combo.setPlaceholderText("سال")
+        self.year_combo.setFixedWidth(90)
+
+        # افزودن ویجت‌ها
+        date_layout.addWidget(self.year_combo)
+        date_layout.addWidget(QLabel("/"))
+
+        date_layout.addWidget(self.month_combo)
+        date_layout.addWidget(QLabel("/"))
+
+        date_layout.addWidget(self.day_combo)
+
+        # افزودن به فرم
         form_layout.addRow("شماره موبایل:", self.phone_input)
         form_layout.addRow("پلاک:", self.plate_input)
-        form_layout.addRow("تاریخ مراجعه:", self.visit_date_input)
-        
+        form_layout.addRow("تاریخ مراجعه:", date_layout)
+
         # دکمه ثبت
         self.add_button = QPushButton("✅ ثبت مشترک")
         self.add_button.clicked.connect(self.add_subscriber)
-        
+
         form_layout.addRow(self.add_button)
 
+        # تنظیمات راست‌چین
         form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form_layout.setFormAlignment(Qt.AlignmentFlag.AlignRight)
 
-        
         group_box.setLayout(form_layout)
-        
+
         layout.addWidget(group_box)
         layout.addStretch()
-        
+
         return widget
     
     def create_excel_import_tab(self):
@@ -317,34 +343,38 @@ class MainWindow(QMainWindow):
                     self.subscribers_table.setItem(row_index, col_index, item)
         
         self.status_bar.showMessage(f"{len(subscribers)} مشترک بارگذاری شد")
-    
+        
     def add_subscriber(self):
         """افزودن مشترک"""
         phone = self.phone_input.text().strip()
         plate = self.plate_input.text().strip()
-        visit_date = self.visit_date_input.text().strip()
-        
-        if not phone or not plate or not visit_date:
-            QMessageBox.warning(self, "خطا", "همه فیلدها الزامی هستند")
+
+        year = self.year_combo.text().strip()
+        month = self.month_combo.text().strip()
+        day = self.day_combo.text().strip()
+
+        visit_date = f"{year}/{month}/{day}"
+
+        if not phone or not plate or not year or not month or not day:
+            self.show_warning("خطا", "همه فیلدها الزامی هستند")
             return
-        
+
         try:
             self.db_manager.add_subscriber(phone, plate, visit_date)
-            
+
             self.show_info("موفق", "مشترک با موفقیت ثبت شد")
-            
+
+            # پاک کردن فیلدها
             self.phone_input.clear()
             self.plate_input.clear()
-            self.visit_date_input.clear()
-            
+            self.year_combo.clear()
+            self.month_combo.clear()
+            self.day_combo.clear()
+
             self.load_subscribers()
-            
+
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "خطا",
-                f"خطا در ثبت مشترک:\n{str(e)}"
-            )
+            self.show_error("خطا", f"خطا در ثبت مشترک:\n{str(e)}")
     
     def search_subscribers(self):
         """جستجوی مشترکین"""
@@ -381,7 +411,7 @@ class MainWindow(QMainWindow):
         selected = self.subscribers_table.currentRow()
         
         if selected < 0:
-            QMessageBox.warning(self, "هشدار", "یک ردیف انتخاب کنید")
+            self.show_warning("هشدار", "یک ردیف انتخاب کنید")
             return
         
         subscriber_id = self.subscribers_table.item(selected, 0).text()
@@ -397,7 +427,7 @@ class MainWindow(QMainWindow):
         selected = self.subscribers_table.currentRow()
         
         if selected < 0:
-            QMessageBox.warning(self, "هشدار", "یک ردیف انتخاب کنید")
+            self.show_warning("هشدار", "یک ردیف انتخاب کنید")
             return
         
         subscriber_id = self.subscribers_table.item(selected, 0).text()
@@ -419,18 +449,10 @@ class MainWindow(QMainWindow):
                 
                 self.load_subscribers()
             else:
-                QMessageBox.warning(
-                    self,
-                    "خطا",
-                    "خطا در ارسال پیامک"
-                )
+                self.show_warning("خطا", "خطا در ارسال پیامک")
         
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "خطا",
-                f"خطا در ارسال پیامک:\n{str(e)}"
-            )
+            self.show_error("خطا", f"خطا در ارسال پیامک:\n{str(e)}")
     
     def clear_all_subscribers(self):
         """حذف همه مشترکین"""
@@ -461,11 +483,11 @@ class MainWindow(QMainWindow):
         visit_date = self.excel_visit_date_input.text().strip()
         
         if not file_path:
-            QMessageBox.warning(self, "خطا", "فایل اکسل را انتخاب کنید")
+            self.show_warning("خطا", "فایل اکسل را انتخاب کنید")
             return
         
         if not visit_date:
-            QMessageBox.warning(self, "خطا", "تاریخ مراجعه را وارد کنید")
+            self.show_warning("خطا", "تاریخ مراجعه را وارد کنید")
             return
         
         try:
@@ -473,7 +495,7 @@ class MainWindow(QMainWindow):
             success_read, data, msg = self.excel_importer.read_excel(file_path)
             
             if not success_read:
-                QMessageBox.warning(self, "خطا", msg)
+                self.show_warning("خطا", msg)
                 return
             
             # حالا با استفاده از extract_phone_and_plate شماره موبایل و پلاک را استخراج کنید
@@ -505,11 +527,7 @@ class MainWindow(QMainWindow):
             self.load_subscribers()
         
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "خطا",
-                f"خطا در خواندن فایل اکسل:\n{str(e)}"
-            )
+            self.show_error("خطا", f"خطا در خواندن فایل اکسل:\n{str(e)}")
     
     def create_backup(self):
         """ایجاد بکاپ"""
@@ -521,11 +539,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("بکاپ با موفقیت ایجاد شد")
         
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "خطا",
-                f"خطا در ایجاد بکاپ:\n{str(e)}"
-            )
+            self.show_error("خطا", f"خطا در ایجاد بکاپ:\n{str(e)}")
     
     def restore_backup(self):
         """بازیابی بکاپ"""
@@ -551,11 +565,7 @@ class MainWindow(QMainWindow):
                 self.load_subscribers()
                 
             except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "خطا",
-                    f"خطا در بازیابی بکاپ:\n{str(e)}"
-                )
+                self.show_error("خطا", f"خطا در بازیابی بکاپ:\n{str(e)}")
     
     def toggle_theme(self):
         """تغییر تم"""
