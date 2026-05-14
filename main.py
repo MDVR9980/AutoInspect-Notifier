@@ -9,9 +9,9 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
 
 import settings
-from db_manager import DatabaseManager
-from main_window import MainWindow
-from scheduler import TaskScheduler
+from core.db_manager import DatabaseManager
+from ui.main_window import MainWindow
+from tasks.scheduler import TaskScheduler
 
 
 def setup_logging():

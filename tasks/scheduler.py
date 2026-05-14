@@ -10,11 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from core.db_manager import DatabaseManager
 from core.sms_api import SMSManager
-from settings import (
-    REMINDER_DAYS_BEFORE,
-    SEND_TIME_HOUR,
-    SEND_TIME_MINUTE
-)
+from settings import REMINDER_DAYS_BEFORE, SCHEDULER_CHECK_TIME
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +35,10 @@ class TaskScheduler:
             if self.scheduler.get_job('daily_sms_task'):
                 self.scheduler.remove_job('daily_sms_task')
 
+            hour, minute = map(int, SCHEDULER_CHECK_TIME.split(':'))
             trigger = CronTrigger(
-                hour=SEND_TIME_HOUR,
-                minute=SEND_TIME_MINUTE
+                hour=hour,
+                minute=minute
             )
 
             self.scheduler.add_job(
