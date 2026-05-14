@@ -12,7 +12,7 @@ import settings
 from core.db_manager import DatabaseManager
 from ui.main_window import MainWindow
 from tasks.scheduler import TaskScheduler
-
+from core.sms_api import SMSManager
 
 def setup_logging():
     """راه‌اندازی سیستم لاگ"""
@@ -48,15 +48,20 @@ def main():
         # راه‌اندازی دیتابیس
         db = DatabaseManager(settings.DATABASE_PATH)
         logger.info("دیتابیس راه‌اندازی شد")
+        sms_manager = SMSManager(
+            settings.SMS_API_KEY,
+            settings.SMS_LINE_NUMBER
+        )
+
         
         # راه‌اندازی زمان‌بند
-        scheduler = TaskScheduler(db)
-        scheduler.start()
+        scheduler = TaskScheduler(db, sms_manager)
+        scheduler.start_daily_task()
         logger.info("زمان‌بند راه‌اندازی شد")
         
         # ایجاد و نمایش پنجره اصلی
         window = MainWindow(db, scheduler)
-        window.setWindowTitle(settings.APP_TITLE)
+        window.setWindowTitle(settings.APP_NAME)
         window.show()
         
         logger.info("پنجره اصلی نمایش داده شد")

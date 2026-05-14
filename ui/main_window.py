@@ -27,13 +27,16 @@ import settings
 class MainWindow(QMainWindow):
     """پنجره اصلی برنامه"""
     
-    def __init__(self):
+    def __init__(self, db_manager, scheduler):
         super().__init__()
         
         # مقداردهی اولیه
-        self.db_manager = DatabaseManager()
-        self.sms_manager = SMSManager()
-        self.backup_manager = BackupManager()
+        self.db_manager = db_manager
+        self.sms_manager = scheduler
+        self.backup_manager = BackupManager(
+            str(settings.DATABASE_PATH),
+            str(settings.BACKUP_DIR)
+        )
         self.excel_importer = ExcelImporter()
         self.auto_task_manager = AutoTaskManager(self.db_manager, self.sms_manager)
         

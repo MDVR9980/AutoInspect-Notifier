@@ -51,7 +51,7 @@ class TaskScheduler:
 
             logger.info(
                 f"وظیفه روزانه برای ساعت "
-                f"{SEND_TIME_HOUR}:{SEND_TIME_MINUTE:02d} تنظیم شد"
+                f"{hour}:{minute:02d} تنظیم شد"
             )
 
             return True
