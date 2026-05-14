@@ -129,24 +129,37 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout()
         widget.setLayout(layout)
-        
+
         # بخش جستجو
+        search_container = QHBoxLayout()
+
+        # فضای چپ
+        search_container.addStretch()
+
+        # لی‌اوت داخلی
         search_layout = QHBoxLayout()
-        search_layout.addStretch()
-        search_layout.setDirection(QBoxLayout.Direction.RightToLeft)
-        self.search_input = QLineEdit()
-        self.search_input.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        self.search_input.setPlaceholderText("شماره موبایل یا پلاک...")
-        self.search_input.textChanged.connect(self.search_subscribers)
-        self.search_input.setFixedWidth(350)
+        search_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)   # ← کل این خط باعث وسطی شدن میشه
 
         search_label = QLabel("🔍 جستجو:")
-        search_label.setAlignment(Qt.AlignmentFlag.AlignRight) 
-        
+        search_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("شماره موبایل یا پلاک...")
+        self.search_input.setFixedWidth(350)
+        self.search_input.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.search_input.textChanged.connect(self.search_subscribers)
+
         search_layout.addWidget(search_label)
         search_layout.addWidget(self.search_input)
-        layout.addLayout(search_layout)
-        
+
+        # قرار دادن در مرکز
+        search_container.addLayout(search_layout)
+
+        # فضای راست
+        search_container.addStretch()
+
+        layout.addLayout(search_container)
+
         # جدول مشترکین
         self.subscribers_table = QTableWidget()
         self.subscribers_table.setColumnCount(7)
