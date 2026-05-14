@@ -25,8 +25,8 @@ DATABASE_PATH = DATA_DIR / "database.db"
 
 # تنظیمات SMS (قاصدک)
 SMS_API_URL = "https://api.ghasedak.me/v2/sms/send/simple"
-SMS_API_KEY = "YOUR_GHASEDAK_API_KEY_HERE"  # کلید API قاصدک را اینجا قرار دهید
-SMS_LINE_NUMBER = "YOUR_LINE_NUMBER"  # شماره خط قاصدک
+SMS_API_KEY = "a5842695aa0151c0c3ae0c8a80b0bfd04d53f9319568940e487221abcd11d11aV8S4vz9xUP6BSeuy"  # کلید API قاصدک را اینجا قرار دهید
+SMS_LINE_NUMBER = "30005088"  # شماره خط قاصدک
 
 # متن پیامک (قابل تغییر)
 SMS_TEMPLATE = """

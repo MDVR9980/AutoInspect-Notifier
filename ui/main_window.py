@@ -33,7 +33,8 @@ class MainWindow(QMainWindow):
         
         # مقداردهی اولیه
         self.db_manager = db_manager
-        self.sms_manager = scheduler
+        self.scheduler = scheduler
+        self.sms_manager = scheduler.sms_manager
         self.backup_manager = BackupManager(
             str(settings.DATABASE_PATH),
             str(settings.BACKUP_DIR)
@@ -402,14 +403,17 @@ class MainWindow(QMainWindow):
         subscriber_id = self.subscribers_table.item(selected, 0).text()
         phone = self.subscribers_table.item(selected, 1).text()
         plate = self.subscribers_table.item(selected, 2).text()
-        
+        expire_date = self.subscribers_table.item(selected, 4).text()
+
         try:
-            message = settings.SMS_TEMPLATE.format(plate=plate)
-            
-            result = self.sms_manager.send_sms(phone, message)
+            result = self.sms_manager.send_sms(
+                phone,
+                plate,
+                expire_date
+            )
             
             if result:
-                self.db_manager.update_sms_status(subscriber_id, 'sent')
+                self.db_manager.update_sms_status(subscriber_id, 'ارسال شد')
                 
                 self.show_info("موفق", "پیامک با موفقیت ارسال شد")
                 

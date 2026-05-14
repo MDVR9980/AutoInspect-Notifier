@@ -4,6 +4,7 @@
 import requests
 import logging
 from typing import Optional
+from settings import SMS_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +19,11 @@ class SMSManager:
         """
         ساخت متن پیامک
         """
-        message = (
-            f"یادآوری معاینه فنی\n"
-            f"پلاک: {plate}\n"
-            f"تاریخ انقضا: {expire_date}\n"
-            f"لطفاً نسبت به تمدید معاینه فنی خودرو اقدام فرمایید."
+        message = SMS_TEMPLATE.format(
+            plate=plate,
+            expire_date=expire_date
         )
+        
         return message
 
     def send_sms(
