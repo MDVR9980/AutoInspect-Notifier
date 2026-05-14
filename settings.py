@@ -17,6 +17,9 @@ LOGS_DIR = BASE_DIR / "logs"
 for directory in [DATA_DIR, BACKUP_DIR, ASSETS_DIR, ICONS_DIR, EXPORTS_DIR, LOGS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
+APP_NAME = "AutoInspect Notifier"
+APP_VERSION = "1.0.0"
+
 # دیتابیس
 DATABASE_PATH = DATA_DIR / "database.db"
 

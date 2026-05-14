@@ -1,6 +1,8 @@
+# tasks/__init__.py
 """
-ماژول مدیریت وظایف زمان‌بندی شده
+Tasks Package - مدیریت وظایف زمان‌بندی شده و خودکار
 """
-from .scheduler import TaskScheduler
+from tasks.scheduler import TaskScheduler
+from tasks.auto_task import AutoTaskManager
 
-__all__ = ['TaskScheduler']
+__all__ = ['TaskScheduler', 'AutoTaskManager']

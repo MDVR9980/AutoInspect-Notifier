@@ -16,13 +16,13 @@ from tasks.scheduler import TaskScheduler
 
 def setup_logging():
     """راه‌اندازی سیستم لاگ"""
-    settings.LOG_DIR.mkdir(exist_ok=True)
+    settings.LOGS_DIR.mkdir(exist_ok=True)
     
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(settings.LOG_FILE_PATH, encoding='utf-8'),
+            logging.FileHandler(settings.LOG_FILE, encoding='utf-8'),
             logging.StreamHandler()
         ]
     )
@@ -42,11 +42,11 @@ def main():
         app.setApplicationVersion(settings.APP_VERSION)
         
         # تنظیم آیکون برنامه
-        if settings.APP_ICON_PATH.exists():
-            app.setWindowIcon(QIcon(str(settings.APP_ICON_PATH)))
+        if settings.APP_ICON.exists():
+            app.setWindowIcon(QIcon(str(settings.APP_ICON)))
         
         # راه‌اندازی دیتابیس
-        db = DatabaseManager()
+        db = DatabaseManager(settings.DATABASE_PATH)
         logger.info("دیتابیس راه‌اندازی شد")
         
         # راه‌اندازی زمان‌بند
