@@ -21,6 +21,7 @@ class AutoTaskManager:
     def start(self):
         """شروع زمان‌بندی خودکار وظایف"""
         try:
+            self.scheduler.start()
             self.scheduler.start_daily_task()
             print("✓ Auto Task Manager started successfully")
             return True

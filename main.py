@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt
 import settings
 from core.db_manager import DatabaseManager
 from ui.main_window import MainWindow
-from tasks.scheduler import TaskScheduler
+from tasks.auto_task import AutoTaskManager
 from core.sms_api import SMSManager
 
 def setup_logging():
@@ -53,14 +53,13 @@ def main():
             settings.SMS_LINE_NUMBER
         )
 
-        
         # راه‌اندازی زمان‌بند
-        scheduler = TaskScheduler(db, sms_manager)
-        scheduler.start_daily_task()
+        auto_task_manager = AutoTaskManager(db, sms_manager)
+        auto_task_manager.start()
         logger.info("زمان‌بند راه‌اندازی شد")
         
         # ایجاد و نمایش پنجره اصلی
-        window = MainWindow(db, scheduler)
+        window = MainWindow(db, auto_task_manager)
         window.setWindowTitle(settings.APP_NAME)
         window.show()
         
@@ -70,7 +69,7 @@ def main():
         exit_code = app.exec()
         
         # توقف زمان‌بند
-        scheduler.stop()
+        auto_task_manager.stop()
         logger.info("برنامه بسته شد")
         
         return exit_code

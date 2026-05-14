@@ -21,10 +21,10 @@ class TaskScheduler:
     def __init__(self, db_manager: DatabaseManager, sms_manager: SMSManager):
         self.db_manager = db_manager
         self.sms_manager = sms_manager
-
         self.scheduler = BackgroundScheduler()
-        self.scheduler.start()
 
+    def start(self):
+        self.scheduler.start()
         logger.info("زمان‌بند راه‌اندازی شد")
 
     def start_daily_task(self):
@@ -256,3 +256,7 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"خطا در توقف زمان‌بند: {str(e)}")
             return False
+        
+    def stop(self):
+        """متوقف کردن زمان‌بند"""
+        return self.shutdown()
