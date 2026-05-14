@@ -1,85 +1,227 @@
+"""
+مدیریت پشتیبان‌گیری و بازیابی دیتابیس
+"""
 import os
 import shutil
 import logging
 from datetime import datetime
-from settings import DB_FILE_PATH, BACKUP_DIR # Import paths from the central settings file
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List
 
-# Setup logging for this module
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class BackupManager:
-    """
-    Manages the creation of database backups.
-
-    This class handles the logic for creating timestamped copies of the
-    main database file in a designated backup directory.
-    """
-
     def __init__(self, db_path: str, backup_dir: str):
-        """
-        Initializes the BackupManager.
-
-        Args:
-            db_path (str): The full path to the source database file.
-            backup_dir (str): The full path to the directory where backups will be stored.
-        """
-        # Store the provided paths.
         self.db_path = db_path
         self.backup_dir = backup_dir
-        # Ensure the backup directory exists.
-        self._ensure_backup_dir_exists()
-
-    def _ensure_backup_dir_exists(self) -> None:
-        """
-        Checks if the backup directory exists and creates it if it doesn't.
-        """
-        try:
-            # The 'exist_ok=True' argument prevents an error if the directory already exists.
-            os.makedirs(self.backup_dir, exist_ok=True)
-        except OSError as e:
-            # Log an error if the directory could not be created (e.g., due to permissions).
-            log.error(f"Could not create backup directory at {self.backup_dir}: {e}")
-            # Raise the exception to notify the calling code of the failure.
-            raise
+        
+        # ایجاد پوشه backup در صورت عدم وجود
+        Path(self.backup_dir).mkdir(parents=True, exist_ok=True)
 
     def create_backup(self) -> Optional[str]:
         """
-        Creates a timestamped backup of the database file.
-
-        The backup filename will be in the format: 'backup_YYYY-MM-DD_HH-MM-SS.db'.
-
-        Returns:
-            Optional[str]: The full path to the created backup file if successful,
-                           otherwise None.
+        ایجاد فایل پشتیبان با فرمت: backup_YYYY_MM_DD_HH_MM_SS.db
+        
+        بازگشت:
+            مسیر فایل پشتیبان یا None در صورت خطا
         """
-        # Check if the source database file actually exists.
-        if not os.path.exists(self.db_path):
-            log.error(f"Source database file not found at {self.db_path}. Cannot create backup.")
-            return None
-
         try:
-            # Get the current time and format it for the filename.
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            # Construct the full filename for the backup.
+            if not os.path.exists(self.db_path):
+                logger.error(f"Database file not found: {self.db_path}")
+                return None
+
+            # ساخت نام فایل با timestamp
+            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
             backup_filename = f"backup_{timestamp}.db"
-            # Construct the full destination path.
-            destination_path = os.path.join(self.backup_dir, backup_filename)
+            backup_path = os.path.join(self.backup_dir, backup_filename)
 
-            # Copy the source database file to the backup destination.
-            # shutil.copy2 attempts to preserve metadata.
-            shutil.copy2(self.db_path, destination_path)
+            # کپی فایل دیتابیس
+            shutil.copy2(self.db_path, backup_path)
 
-            # Log a success message with the path to the new backup.
-            log.info(f"Database backup successfully created at: {destination_path}")
-            return destination_path
+            logger.info(f"Backup created: {backup_path}")
+            return backup_path
 
-        except (IOError, OSError) as e:
-            # Catch file-related errors that might occur during the copy operation.
-            log.error(f"Failed to create database backup: {e}")
+        except PermissionError:
+            logger.error("Permission denied for backup operation")
             return None
 
-# Global Instance
-# Create a single, reusable instance of the manager using paths from settings.
-backup_manager = BackupManager(db_path=DB_FILE_PATH, backup_dir=BACKUP_DIR)
+        except Exception as e:
+            logger.error(f"Backup creation failed: {e}")
+            return None
+
+    def restore_backup(self, backup_path: str) -> bool:
+        """
+        بازیابی دیتابیس از فایل پشتیبان
+        
+        آرگومان‌ها:
+            backup_path: مسیر فایل پشتیبان
+            
+        بازگشت:
+            True در صورت موفقیت، False در غیر این صورت
+        """
+        try:
+            if not os.path.exists(backup_path):
+                logger.error(f"Backup file not found: {backup_path}")
+                return False
+
+            # ایجاد نسخه امنیتی از دیتابیس فعلی قبل از بازیابی
+            if os.path.exists(self.db_path):
+                temp_backup = f"{self.db_path}.temp_backup"
+                shutil.copy2(self.db_path, temp_backup)
+
+                try:
+                    # بازیابی از فایل پشتیبان
+                    shutil.copy2(backup_path, self.db_path)
+                    logger.info(f"Database restored from: {backup_path}")
+                    
+                    # حذف نسخه موقت
+                    if os.path.exists(temp_backup):
+                        os.remove(temp_backup)
+                    
+                    return True
+
+                except Exception as e:
+                    # در صورت خطا، بازگردانی نسخه قبلی
+                    logger.error(f"Restore failed, reverting: {e}")
+                    if os.path.exists(temp_backup):
+                        shutil.copy2(temp_backup, self.db_path)
+                        os.remove(temp_backup)
+                    return False
+            else:
+                # اگر دیتابیس وجود نداشت، مستقیم بازیابی می‌کنیم
+                shutil.copy2(backup_path, self.db_path)
+                logger.info(f"Database restored from: {backup_path}")
+                return True
+
+        except PermissionError:
+            logger.error("Permission denied for restore operation")
+            return False
+
+        except Exception as e:
+            logger.error(f"Restore operation failed: {e}")
+            return False
+
+    def list_backups(self) -> List[dict]:
+        """
+        لیست تمام فایل‌های پشتیبان
+        
+        بازگشت:
+            لیستی از دیکشنری‌ها شامل نام و مسیر فایل‌های پشتیبان
+        """
+        try:
+            backups = []
+            
+            if not os.path.exists(self.backup_dir):
+                return backups
+
+            for filename in os.listdir(self.backup_dir):
+                if filename.startswith("backup_") and filename.endswith(".db"):
+                    file_path = os.path.join(self.backup_dir, filename)
+                    file_stat = os.stat(file_path)
+                    backup_info = {
+                        "filename": filename,
+                        "path": file_path,
+                        "size": round(file_stat.st_size / 1024, 2),  # KB
+                        "created_at": datetime.fromtimestamp(
+                            file_stat.st_ctime
+                        ).strftime("%Y-%m-%d %H:%M:%S")
+                    }
+
+                    backups.append(backup_info)
+
+            # مرتب‌سازی بر اساس جدیدترین فایل
+            backups.sort(
+                key=lambda x: x["created_at"],
+                reverse=True
+            )
+
+            return backups
+
+        except Exception as e:
+            logger.error(f"Failed to list backups: {e}")
+            return []
+
+    def delete_backup(self, backup_path: str) -> bool:
+        """
+        حذف فایل پشتیبان
+        
+        آرگومان‌ها:
+            backup_path: مسیر فایل بکاپ
+            
+        بازگشت:
+            True در صورت موفقیت
+        """
+        try:
+            if not os.path.exists(backup_path):
+                logger.warning(f"Backup file not found: {backup_path}")
+                return False
+
+            os.remove(backup_path)
+            logger.info(f"Backup deleted: {backup_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to delete backup: {e}")
+            return False
+
+    def get_latest_backup(self) -> Optional[str]:
+        """
+        دریافت جدیدترین فایل پشتیبان
+        
+        بازگشت:
+            مسیر جدیدترین بکاپ
+        """
+        try:
+            backups = self.list_backups()
+
+            if not backups:
+                return None
+
+            return backups[0]["path"]
+
+        except Exception as e:
+            logger.error(f"Failed to get latest backup: {e}")
+            return None
+
+    def backup_exists(self, backup_path: str) -> bool:
+        """
+        بررسی وجود فایل بکاپ
+        """
+        return os.path.exists(backup_path)
+
+    def get_backup_count(self) -> int:
+        """
+        تعداد فایل‌های بکاپ
+        """
+        return len(self.list_backups())
+
+    def clear_old_backups(self, keep_last: int = 10) -> int:
+        """
+        حذف بکاپ‌های قدیمی
+        
+        آرگومان‌ها:
+            keep_last: تعداد بکاپ‌هایی که نگه داشته می‌شوند
+            
+        بازگشت:
+            تعداد فایل‌های حذف شده
+        """
+        try:
+            backups = self.list_backups()
+
+            if len(backups) <= keep_last:
+                return 0
+
+            deleted_count = 0
+            old_backups = backups[keep_last:]
+
+            for backup in old_backups:
+                if self.delete_backup(backup["path"]):
+                    deleted_count += 1
+
+            logger.info(f"{deleted_count} old backups deleted")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to clear old backups: {e}")
+            return 0

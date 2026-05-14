@@ -1,209 +1,587 @@
-import sys
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QFileDialog, QStatusBar, QTabWidget, QGroupBox, QComboBox,
-                             QLineEdit, QLabel, QMessageBox)
-from PyQt6.QtCore import Qt, QSettings
-from PyQt6.QtGui import QIcon
+"""
+پنجره اصلی برنامه AutoInspect Notifier
+"""
 
-from ui.styles import get_light_theme, get_dark_theme
-from utils.excel_importer import import_customers_from_excel
+import sys
+import os
+from datetime import datetime
+import jdatetime
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
+    QPushButton, QTableWidget, QTableWidgetItem, QLabel, QLineEdit,
+    QMessageBox, QFileDialog, QGroupBox, QFormLayout, QHeaderView,
+    QStatusBar, QToolBar, QDialog, QDialogButtonBox, QTextEdit
+)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QIcon, QAction
+
 from core.db_manager import DatabaseManager
-from settings import APP_ICON_PATH, DB_FILE_PATH
+from core.sms_api import SMSManager
+from core.backup_manager import BackupManager
+from utils.excel_importer import ExcelImporter
+from tasks.auto_task import AutoTaskManager
+from ui.styles import Styles
+import settings
 
 
 class MainWindow(QMainWindow):
+    """پنجره اصلی برنامه"""
+    
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("سیستم حرفه‌ای یادآوری معاینه فنی - AutoInspect Notifier")
-        self.resize(900, 650)
-        self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
-        self.settings = QSettings("MyCompany", "AutoInspectNotifier")
         
-        # اتصال به دیتابیس
-        self.db = DatabaseManager(DB_FILE_PATH)
-        self.db.connect()
-
-        self._init_ui()
-        self.load_theme()
-        self.load_data()
-
-    def _init_ui(self):
-        # تنظیم راست‌چین بودن کل پنجره
-        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        # مقداردهی اولیه
+        self.db_manager = DatabaseManager()
+        self.sms_manager = SMSManager()
+        self.backup_manager = BackupManager()
+        self.excel_importer = ExcelImporter()
+        self.auto_task_manager = AutoTaskManager(self.db_manager, self.sms_manager)
         
+        # مدیریت استایل
+        self.styles = Styles(theme='light')
+        
+        # راه‌اندازی UI
+        self.init_ui()
+        
+        # شروع وظایف خودکار
+        self.auto_task_manager.start()
+        
+        # بارگذاری داده‌ها
+        self.load_subscribers()
+    
+    def init_ui(self):
+        """راه‌اندازی رابط کاربری"""
+        self.setWindowTitle("AutoInspect Notifier - سیستم یادآوری معاینه فنی")
+        self.setGeometry(100, 100, 1200, 700)
+        
+        # ویجت مرکزی
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-
-        # تب‌ها
-        self.tabs = QTabWidget()
-        self.tab_dashboard = QWidget()
-        self.tab_customers = QWidget()
-
-        self.tabs.addTab(self.tab_dashboard, "داشبورد و عملیات")
-        self.tabs.addTab(self.tab_customers, "لیست مشتریان")
         
+        # لی‌اوت اصلی
+        main_layout = QVBoxLayout()
+        central_widget.setLayout(main_layout)
+        
+        # ایجاد نوار ابزار
+        self.create_toolbar()
+        
+        # ایجاد تب‌ها
+        self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
-
-        self._init_dashboard_tab()
-        self._init_customers_tab()
-
+        
+        # تب داشبورد
+        self.dashboard_tab = self.create_dashboard_tab()
+        self.tabs.addTab(self.dashboard_tab, "📊 داشبورد")
+        
+        # تب افزودن مشترک
+        self.add_subscriber_tab = self.create_add_subscriber_tab()
+        self.tabs.addTab(self.add_subscriber_tab, "➕ افزودن مشترک")
+        
+        # تب ورود اکسل
+        self.excel_import_tab = self.create_excel_import_tab()
+        self.tabs.addTab(self.excel_import_tab, "📁 ورود از اکسل")
+        
         # نوار وضعیت
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("برنامه آماده است.")
-
-    def _init_dashboard_tab(self):
-        layout = QVBoxLayout(self.tab_dashboard)
-        layout.setSpacing(15)
-
-        # 1. تنظیم تاریخ مراجعه (شمسی)
-        group_date = QGroupBox("تنظیم تاریخ مراجعه (شمسی)")
-        layout_date = QHBoxLayout()
+        self.status_bar.showMessage("آماده")
         
-        self.combo_day = QComboBox()
-        self.combo_day.addItems([str(i) for i in range(1, 32)])
-        self.combo_month = QComboBox()
-        self.combo_month.addItems(["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"])
-        self.combo_year = QComboBox()
-        self.combo_year.addItems([str(i) for i in range(1402, 1415)])
+        # اعمال استایل
+        self.apply_styles()
+    
+    def create_toolbar(self):
+        """ایجاد نوار ابزار"""
+        toolbar = QToolBar()
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
         
-        layout_date.addWidget(QLabel("روز:"))
-        layout_date.addWidget(self.combo_day)
-        layout_date.addWidget(QLabel("ماه:"))
-        layout_date.addWidget(self.combo_month)
-        layout_date.addWidget(QLabel("سال:"))
-        layout_date.addWidget(self.combo_year)
-        layout_date.addStretch()
+        # دکمه بروزرسانی
+        refresh_action = QAction("🔄 بروزرسانی", self)
+        refresh_action.triggered.connect(self.load_subscribers)
+        toolbar.addAction(refresh_action)
         
-        group_date.setLayout(layout_date)
-        layout.addWidget(group_date)
-
-        # 2. ثبت دستی مراجعه
-        group_manual = QGroupBox("ثبت دستی مراجعه")
-        layout_manual = QHBoxLayout()
+        toolbar.addSeparator()
         
-        self.input_plate = QLineEdit()
-        self.input_plate.setPlaceholderText("مثال: 12 ب 345 ایران 67")
-        self.input_plate.setToolTip("شماره پلاک خودرو را در این قسمت وارد کنید")
+        # دکمه بکاپ
+        backup_action = QAction("💾 بکاپ", self)
+        backup_action.triggered.connect(self.create_backup)
+        toolbar.addAction(backup_action)
         
-        self.input_phone = QLineEdit()
-        self.input_phone.setPlaceholderText("مثال: 09123456789")
-        self.input_phone.setToolTip("شماره موبایل مشتری را در این قسمت وارد کنید")
+        # دکمه بازیابی
+        restore_action = QAction("♻️ بازیابی", self)
+        restore_action.triggered.connect(self.restore_backup)
+        toolbar.addAction(restore_action)
         
-        self.btn_submit_manual = QPushButton("ثبت اطلاعات")
-        self.btn_submit_manual.setObjectName("btn_submit") # اعمال شناسه برای استایل سبز رنگ
-        self.btn_submit_manual.setToolTip("ذخیره اطلاعات پلاک و شماره موبایل در سیستم")
+        toolbar.addSeparator()
         
-        layout_manual.addWidget(self.input_plate)
-        layout_manual.addWidget(self.input_phone)
-        layout_manual.addWidget(self.btn_submit_manual)
+        # دکمه تغییر تم
+        theme_action = QAction("🌓 تغییر تم", self)
+        theme_action.triggered.connect(self.toggle_theme)
+        toolbar.addAction(theme_action)
+    
+    def create_dashboard_tab(self):
+        """ایجاد تب داشبورد"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
         
-        group_manual.setLayout(layout_manual)
-        layout.addWidget(group_manual)
-
-        # 3. عملیات گروهی و پیامک
-        group_batch = QGroupBox("عملیات گروهی و پیامک")
-        layout_batch = QHBoxLayout()
+        # بخش جستجو
+        search_layout = QHBoxLayout()
+        search_label = QLabel("🔍 جستجو:")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("شماره موبایل یا پلاک...")
+        self.search_input.textChanged.connect(self.search_subscribers)
         
-        self.btn_import_excel = QPushButton("📁 بارگذاری از اکسل")
-        self.btn_import_excel.setToolTip("وارد کردن اطلاعات مشتریان به صورت گروهی از فایل اکسل")
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_input)
         
-        self.btn_send_sms = QPushButton("🚀 ارسال/زمان‌بندی پیامک‌ها")
-        self.btn_send_sms.setToolTip("شروع بررسی و ارسال پیامک برای مشتریانی که موعدشان فرا رسیده است")
+        layout.addLayout(search_layout)
         
-        layout_batch.addWidget(self.btn_import_excel)
-        layout_batch.addWidget(self.btn_send_sms)
+        # جدول مشترکین
+        self.subscribers_table = QTableWidget()
+        self.subscribers_table.setColumnCount(7)
+        self.subscribers_table.setHorizontalHeaderLabels([
+            "شناسه",
+            "شماره موبایل",
+            "پلاک",
+            "تاریخ مراجعه",
+            "تاریخ انقضا",
+            "وضعیت پیامک",
+            "تاریخ ایجاد"
+        ])
         
-        group_batch.setLayout(layout_batch)
-        layout.addWidget(group_batch)
-
-        # 4. مدیریت دیتابیس و تنظیمات
-        group_db = QGroupBox("مدیریت دیتابیس و سیستم")
-        layout_db = QHBoxLayout()
+        # تنظیمات جدول
+        header = self.subscribers_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         
-        self.btn_backup = QPushButton("💾 تهیه نسخه پشتیبان")
-        self.btn_backup.setToolTip("یک کپی از اطلاعات فعلی در قالب فایل ذخیره می‌کند")
+        self.subscribers_table.setAlternatingRowColors(True)
+        self.subscribers_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
         
-        self.btn_restore = QPushButton("📂 بازیابی اطلاعات")
-        self.btn_restore.setToolTip("بازگردانی اطلاعات از روی فایل پشتیبان تهیه شده در گذشته")
+        layout.addWidget(self.subscribers_table)
         
-        self.btn_theme = QPushButton("🌙/☀️ تغییر تم")
-        self.btn_theme.setToolTip("تغییر ظاهر برنامه بین حالت روز و شب")
+        # دکمه‌های عملیات
+        buttons_layout = QHBoxLayout()
         
-        layout_db.addWidget(self.btn_backup)
-        layout_db.addWidget(self.btn_restore)
-        layout_db.addWidget(self.btn_theme)
+        self.delete_button = QPushButton("🗑 حذف")
+        self.delete_button.clicked.connect(self.delete_selected_subscriber)
         
-        group_db.setLayout(layout_db)
-        layout.addWidget(group_db)
+        self.send_sms_button = QPushButton("📨 ارسال پیامک")
+        self.send_sms_button.clicked.connect(self.send_single_sms)
         
+        self.clear_all_button = QPushButton("⚠ حذف همه")
+        self.clear_all_button.clicked.connect(self.clear_all_subscribers)
+        
+        buttons_layout.addWidget(self.delete_button)
+        buttons_layout.addWidget(self.send_sms_button)
+        buttons_layout.addWidget(self.clear_all_button)
+        buttons_layout.addStretch()
+        
+        layout.addLayout(buttons_layout)
+        
+        return widget
+    
+    def create_add_subscriber_tab(self):
+        """تب افزودن مشترک"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
+        
+        group_box = QGroupBox("ثبت مشترک جدید")
+        form_layout = QFormLayout()
+        
+        # شماره موبایل
+        self.phone_input = QLineEdit()
+        self.phone_input.setPlaceholderText("09123456789")
+        
+        # پلاک
+        self.plate_input = QLineEdit()
+        self.plate_input.setPlaceholderText("12الف34567")
+        
+        # تاریخ مراجعه
+        self.visit_date_input = QLineEdit()
+        self.visit_date_input.setPlaceholderText("1405/02/24")
+        
+        form_layout.addRow("شماره موبایل:", self.phone_input)
+        form_layout.addRow("پلاک:", self.plate_input)
+        form_layout.addRow("تاریخ مراجعه:", self.visit_date_input)
+        
+        # دکمه ثبت
+        self.add_button = QPushButton("✅ ثبت مشترک")
+        self.add_button.clicked.connect(self.add_subscriber)
+        
+        form_layout.addRow(self.add_button)
+        
+        group_box.setLayout(form_layout)
+        
+        layout.addWidget(group_box)
         layout.addStretch()
-
-        # اتصال دکمه‌ها
-        self.btn_theme.clicked.connect(self.toggle_theme)
-        self.btn_import_excel.clicked.connect(self.import_excel_data)
-
-    def _init_customers_tab(self):
-        layout = QVBoxLayout(self.tab_customers)
-
-        # دکمه‌های بالای لیست
-        top_layout = QHBoxLayout()
         
-        self.btn_delete_all = QPushButton("🗑️ حذف کل لیست")
-        self.btn_delete_all.setObjectName("btn_delete_all") # اعمال شناسه برای استایل قرمز رنگ
-        self.btn_delete_all.setToolTip("حذف تمامی اطلاعات مشتریان از سیستم (غیرقابل بازگشت)")
+        return widget
+    
+    def create_excel_import_tab(self):
+        """تب ورود اکسل"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+        widget.setLayout(layout)
         
-        top_layout.addWidget(self.btn_delete_all)
-        top_layout.addStretch()
-        layout.addLayout(top_layout)
-
-        # جدول مشتریان
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ردیف", "پلاک خودرو", "شماره تماس", "تاریخ انقضا", "وضعیت پیامک"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        group_box = QGroupBox("ورود اطلاعات از فایل اکسل")
+        form_layout = QFormLayout()
         
-        layout.addWidget(self.table)
-
-    def load_data(self):
+        # مسیر فایل
+        self.excel_path_input = QLineEdit()
+        self.excel_path_input.setReadOnly(True)
+        
+        browse_button = QPushButton("📂 انتخاب فایل")
+        browse_button.clicked.connect(self.select_excel_file)
+        
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(self.excel_path_input)
+        file_layout.addWidget(browse_button)
+        
+        # تاریخ مراجعه
+        self.excel_visit_date_input = QLineEdit()
+        self.excel_visit_date_input.setPlaceholderText("1405/02/24")
+        
+        # دکمه ورود
+        self.import_button = QPushButton("⬆ ورود اطلاعات")
+        self.import_button.clicked.connect(self.import_excel_data)
+        
+        form_layout.addRow("فایل اکسل:", file_layout)
+        form_layout.addRow("تاریخ مراجعه:", self.excel_visit_date_input)
+        form_layout.addRow(self.import_button)
+        
+        group_box.setLayout(form_layout)
+        
+        layout.addWidget(group_box)
+        layout.addStretch()
+        
+        return widget
+    
+    def load_subscribers(self):
+        """بارگذاری مشترکین"""
+        subscribers = self.db_manager.get_all_subscribers()
+        
+        self.subscribers_table.setRowCount(len(subscribers))
+        
+        for row, subscriber in enumerate(subscribers):
+            for col, value in enumerate(subscriber):
+                item = QTableWidgetItem(str(value))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.subscribers_table.setItem(row, col, item)
+        
+        self.status_bar.showMessage(f"{len(subscribers)} مشترک بارگذاری شد")
+    
+    def add_subscriber(self):
+        """افزودن مشترک"""
+        phone = self.phone_input.text().strip()
+        plate = self.plate_input.text().strip()
+        visit_date = self.visit_date_input.text().strip()
+        
+        if not phone or not plate or not visit_date:
+            QMessageBox.warning(self, "خطا", "همه فیلدها الزامی هستند")
+            return
+        
         try:
-            customers = self.db.get_all_customers()
-            self.table.setRowCount(len(customers))
-            for row_idx, row_data in enumerate(customers):
-                # فرض بر این است که خروجی دیتابیس شامل: id, plate, phone, expire_date, sms_status است
-                self.table.setItem(row_idx, 0, QTableWidgetItem(str(row_idx + 1)))
-                self.table.setItem(row_idx, 1, QTableWidgetItem(str(row_data[1])))
-                self.table.setItem(row_idx, 2, QTableWidgetItem(str(row_data[2])))
-                self.table.setItem(row_idx, 3, QTableWidgetItem(str(row_data[3])))
-                self.table.setItem(row_idx, 4, QTableWidgetItem(str(row_data[4])))
+            self.db_manager.add_subscriber(phone, plate, visit_date)
             
-            self.status_bar.showMessage(f"اطلاعات بارگذاری شد: {len(customers)} رکورد")
+            QMessageBox.information(
+                self,
+                "موفق",
+                "مشترک با موفقیت ثبت شد"
+            )
+            
+            self.phone_input.clear()
+            self.plate_input.clear()
+            self.visit_date_input.clear()
+            
+            self.load_subscribers()
+            
         except Exception as e:
-            self.status_bar.showMessage(f"خطا در بارگذاری اطلاعات: {e}")
-
-    def import_excel_data(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "انتخاب فایل اکسل", "", "Excel Files (*.xlsx *.xls)")
-        if file_path:
-            # در اینجا منطق اکسل قرار می‌گیرد (فعلاً پیام موفقیت می‌دهیم)
-            self.status_bar.showMessage(f"در حال وارد کردن اطلاعات از {file_path} ...")
-            # import_customers_from_excel(file_path, self.db) # اگر تابع شما دیتابیس را می‌گیرد
-            self.load_data()
-
-    def toggle_theme(self):
-        current_theme = self.settings.value("theme", "light")
-        new_theme = "dark" if current_theme == "light" else "light"
-        self.apply_theme(new_theme)
-
-    def apply_theme(self, theme_name):
-        if theme_name == "dark":
-            self.setStyleSheet(get_dark_theme())
+            QMessageBox.critical(
+                self,
+                "خطا",
+                f"خطا در ثبت مشترک:\n{str(e)}"
+            )
+    
+    def search_subscribers(self):
+        """جستجوی مشترکین"""
+        search_text = self.search_input.text().strip()
+        
+        if search_text:
+            subscribers = self.db_manager.search_subscribers(search_text)
         else:
-            self.setStyleSheet(get_light_theme())
-        self.settings.setValue("theme", theme_name)
+            subscribers = self.db_manager.get_all_subscribers()
+        
+        self.subscribers_table.setRowCount(len(subscribers))
+        
+        for row, subscriber in enumerate(subscribers):
+            for col, value in enumerate(subscriber):
+                item = QTableWidgetItem(str(value))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.subscribers_table.setItem(row, col, item)
+    
+    def delete_selected_subscriber(self):
+        """حذف مشترک انتخاب شده"""
+        selected = self.subscribers_table.currentRow()
+        
+        if selected < 0:
+            QMessageBox.warning(self, "هشدار", "یک ردیف انتخاب کنید")
+            return
+        
+        subscriber_id = self.subscribers_table.item(selected, 0).text()
+        
+        reply = QMessageBox.question(
+            self,
+            "تأیید حذف",
+            "آیا مطمئن هستید؟",
+            QMessageBox.StandardButton.Yes |
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.db_manager.delete_subscriber(subscriber_id)
+            self.load_subscribers()
+            
+            QMessageBox.information(
+                self,
+                "موفق",
+                "مشترک حذف شد"
+            )
+        
+    def send_single_sms(self):
+        """ارسال پیامک به مشترک انتخاب شده"""
+        selected = self.subscribers_table.currentRow()
+        
+        if selected < 0:
+            QMessageBox.warning(self, "هشدار", "یک ردیف انتخاب کنید")
+            return
+        
+        subscriber_id = self.subscribers_table.item(selected, 0).text()
+        phone = self.subscribers_table.item(selected, 1).text()
+        plate = self.subscribers_table.item(selected, 2).text()
+        
+        try:
+            message = settings.SMS_TEMPLATE.format(plate=plate)
+            
+            result = self.sms_manager.send_sms(phone, message)
+            
+            if result:
+                self.db_manager.update_sms_status(subscriber_id, 'sent')
+                
+                QMessageBox.information(
+                    self,
+                    "موفق",
+                    "پیامک با موفقیت ارسال شد"
+                )
+                
+                self.load_subscribers()
+            else:
+                QMessageBox.warning(
+                    self,
+                    "خطا",
+                    "خطا در ارسال پیامک"
+                )
+        
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "خطا",
+                f"خطا در ارسال پیامک:\n{str(e)}"
+            )
+    
+    def clear_all_subscribers(self):
+        """حذف همه مشترکین"""
+        reply = QMessageBox.question(
+            self,
+            "تأیید حذف",
+            "⚠ آیا از حذف همه مشترکین مطمئن هستید؟\nاین عملیات غیرقابل بازگشت است!",
+            QMessageBox.StandardButton.Yes |
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.db_manager.clear_all_subscribers()
+            self.load_subscribers()
+            
+            QMessageBox.information(
+                self,
+                "موفق",
+                "همه مشترکین حذف شدند"
+            )
+    
+    def select_excel_file(self):
+        """انتخاب فایل اکسل"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "انتخاب فایل اکسل",
+            "",
+            "Excel Files (*.xlsx *.xls)"
+        )
+        
+        if file_path:
+            self.excel_path_input.setText(file_path)
+    
+    def import_excel_data(self):
+        """ورود داده‌ها از اکسل"""
+        file_path = self.excel_path_input.text().strip()
+        visit_date = self.excel_visit_date_input.text().strip()
+        
+        if not file_path:
+            QMessageBox.warning(self, "خطا", "فایل اکسل را انتخاب کنید")
+            return
+        
+        if not visit_date:
+            QMessageBox.warning(self, "خطا", "تاریخ مراجعه را وارد کنید")
+            return
+        
+        try:
+            data = self.excel_importer.read_excel(file_path)
+            
+            success_count = 0
+            error_count = 0
+            
+            for row in data:
+                phone = row.get('phone', '').strip()
+                plate = row.get('plate', '').strip()
+                
+                if phone and plate:
+                    try:
+                        self.db_manager.add_subscriber(phone, plate, visit_date)
+                        success_count += 1
+                    except:
+                        error_count += 1
+            
+            QMessageBox.information(
+                self,
+                "نتیجه ورود",
+                f"✅ موفق: {success_count}\n❌ خطا: {error_count}"
+            )
+            
+            self.excel_path_input.clear()
+            self.excel_visit_date_input.clear()
+            
+            self.load_subscribers()
+        
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "خطا",
+                f"خطا در خواندن فایل اکسل:\n{str(e)}"
+            )
+    
+    def create_backup(self):
+        """ایجاد بکاپ"""
+        try:
+            backup_path = self.backup_manager.create_backup()
+            
+            QMessageBox.information(
+                self, "موفق",
+                f"بکاپ ایجاد شد:\n{backup_path}"
+            )
+            
+            self.status_bar.showMessage("بکاپ با موفقیت ایجاد شد")
+        
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "خطا",
+                f"خطا در ایجاد بکاپ:\n{str(e)}"
+            )
+    
+    def restore_backup(self):
+        """بازیابی بکاپ"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "انتخاب فایل بکاپ",
+            "",
+            "Database Files (*.db *.sqlite)"
+        )
+        
+        if not file_path:
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "تأیید بازیابی",
+            "آیا از بازیابی بکاپ مطمئن هستید؟\nاطلاعات فعلی جایگزین خواهند شد.",
+            QMessageBox.StandardButton.Yes |
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.backup_manager.restore_backup(file_path)
+                
+                QMessageBox.information(
+                    self,
+                    "موفق",
+                    "بکاپ با موفقیت بازیابی شد"
+                )
+                
+                self.load_subscribers()
+                
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "خطا",
+                    f"خطا در بازیابی بکاپ:\n{str(e)}"
+                )
+    
+    def toggle_theme(self):
+        """تغییر تم"""
+        self.styles.switch_theme()
+        self.apply_styles()
+        
+        current_theme = self.styles.current_theme
+        
+        if current_theme == 'dark':
+            self.status_bar.showMessage("تم تیره فعال شد")
+        else:
+            self.status_bar.showMessage("تم روشن فعال شد")
+    
+    def apply_styles(self):
+        """اعمال استایل‌ها"""
+        self.setStyleSheet(self.styles.get_main_window_style())
+        
+        # دکمه‌ها
+        buttons = self.findChildren(QPushButton)
+        for button in buttons:
+            button.setStyleSheet(self.styles.get_button_style())
+        
+        # ورودی‌ها
+        inputs = self.findChildren(QLineEdit)
+        for input_widget in inputs:
+            input_widget.setStyleSheet(self.styles.get_input_style())
+        
+        # جدول‌ها
+        tables = self.findChildren(QTableWidget)
+        for table in tables:
+            table.setStyleSheet(self.styles.get_table_style())
+        
+        # گروه‌باکس‌ها
+        groupboxes = self.findChildren(QGroupBox)
+        for groupbox in groupboxes:
+            groupbox.setStyleSheet(self.styles.get_groupbox_style())
+    
+    def closeEvent(self, event):
+        """رویداد بستن برنامه"""
+        try:
+            self.auto_task_manager.stop()
+        except:
+            pass
+        
+        event.accept()
 
-    def load_theme(self):
-        theme = self.settings.value("theme", "light")
-        self.apply_theme(theme)
+
+if __name__ == "__main__":
+    from PyQt6.QtWidgets import QApplication
+    
+    app = QApplication(sys.argv)
+    
+    window = MainWindow()
+    window.show()
+    
+    sys.exit(app.exec())
+

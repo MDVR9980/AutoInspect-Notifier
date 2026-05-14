@@ -1,43 +1,54 @@
+"""
+تنظیمات اصلی برنامه AutoInspect Notifier
+"""
 import os
 from pathlib import Path
 
-# Base directory of the project
-# This will be the root folder where main.py is located.
+# مسیرهای پروژه
 BASE_DIR = Path(__file__).resolve().parent
-
-# Directory Settings
-# We define all necessary paths based on the BASE_DIR.
-
-# Main data directory (for database)
 DATA_DIR = BASE_DIR / "data"
+BACKUP_DIR = DATA_DIR / "backups"
+ASSETS_DIR = DATA_DIR / "assets"
+ICONS_DIR = ASSETS_DIR / "icons"
+EXPORTS_DIR = BASE_DIR / "exports"
+LOGS_DIR = BASE_DIR / "logs"
 
-# Backup directory
-BACKUP_DIR = BASE_DIR / "backup"
+# ایجاد پوشه‌ها در صورت عدم وجود
+for directory in [DATA_DIR, BACKUP_DIR, ASSETS_DIR, ICONS_DIR, EXPORTS_DIR, LOGS_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)
 
-# Log directory
-LOG_DIR = BASE_DIR / "logs"
+# دیتابیس
+DATABASE_PATH = DATA_DIR / "database.db"
 
+# تنظیمات SMS (قاصدک)
+SMS_API_URL = "https://api.ghasedak.me/v2/sms/send/simple"
+SMS_API_KEY = "YOUR_GHASEDAK_API_KEY_HERE"  # کلید API قاصدک را اینجا قرار دهید
+SMS_LINE_NUMBER = "YOUR_LINE_NUMBER"  # شماره خط قاصدک
 
-APP_ICON_PATH = BASE_DIR / "data/assets/icons/app_icon.ico"
+# متن پیامک (قابل تغییر)
+SMS_TEMPLATE = """
+مشتری گرامی
+پلاک: {plate}
+تاریخ انقضای معاینه فنی: {expire_date}
+لطفاً جهت تمدید به مرکز معاینه فنی مراجعه فرمایید.
+"""
 
-# Database Settings
-DB_NAME = "database.db"
-DB_FILE_PATH = DATA_DIR / DB_NAME
+# تنظیمات زمان‌بندی
+REMINDER_DAYS_BEFORE = 3  # چند روز قبل از انقضا پیامک ارسال شود
+SCHEDULER_CHECK_TIME = "08:00"  # ساعت چک روزانه (فرمت HH:MM)
 
+# تنظیمات لاگ
+LOG_FILE = LOGS_DIR / "app.log"
+LOG_LEVEL = "INFO"
 
-# Log Settings
-LOG_FILE_NAME = "app.log"
-LOG_FILE_PATH = LOG_DIR / LOG_FILE_NAME
+# تنظیمات تم
+DEFAULT_THEME = "light"  # light یا dark
 
+# تنظیمات فایل اکسل
+EXCEL_COLUMNS = {
+    "phone": 0,  # ستون شماره تلفن
+    "plate": 1   # ستون پلاک
+}
 
-# Ghasdak SMS API Settings
-# IMPORTANT: Replace with your actual API key from ghasdak.io
-GHASDAK_API_KEY = "a5842695aa0151c0c3ae0c8a80b0bfd04d53f9319568940e487221abcd11d11aV8S4vz9xUP6BSeuy"
-
-
-# Scheduler Settings
-# Time to send SMS notifications every day (24-hour format)
-SMS_SCHEDULE_TIME = "10:00"
-
-# Time to perform database backup every day (24-hour format)
-BACKUP_SCHEDULE_TIME = "01:00"
+# آیکون برنامه
+APP_ICON = ICONS_DIR / "app_icon.ico"

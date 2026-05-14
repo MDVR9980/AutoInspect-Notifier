@@ -1,222 +1,371 @@
-# autoinspect-notifier/core/db_manager.py
-
+"""
+مدیریت دیتابیس SQLite
+"""
 import sqlite3
+from pathlib import Path
 import logging
-from typing import Optional, List, Tuple
+from typing import List, Dict, Optional, Tuple
+from jdatetime import datetime as jdatetime
 
-# Setup logging for this module
-# This helps in debugging and tracking database operations.
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """
-    Manages all interactions with the SQLite database.
-
-    This class encapsulates the database connection, table creation,
-    and CRUD (Create, Read, Update, Delete) operations for the
-    customer data.
-    """
-
-    def __init__(self, db_path: str):
-        """
-        Initializes the DatabaseManager.
-
-        Args:
-            db_path (str): The file path to the SQLite database.
-        """
-        # Store the path to the database file.
+    def __init__(self, db_path: Path):
         self.db_path = db_path
-        # Initialize the connection object to None. It will be created when connect() is called.
-        self.conn: Optional[sqlite3.Connection] = None
+        self.connection = None
+        self._init_database()
 
-    def connect(self) -> None:
-        """
-        Establishes a connection to the database.
-        
-        Raises:
-            sqlite3.Error: If the connection to the database fails.
-        """
+    def _init_database(self):
+        """ایجاد دیتابیس و جدول‌ها"""
         try:
-            # Establish a connection to the SQLite database file.
-            self.conn = sqlite3.connect(self.db_path)
-            # Log a successful connection.
-            log.info(f"Successfully connected to the database at {self.db_path}")
-        except sqlite3.Error as e:
-            # Log an error if the connection fails.
-            log.error(f"Database connection failed: {e}")
-            # Re-raise the exception to be handled by the caller.
+            self.connection = sqlite3.connect(
+                self.db_path,
+                check_same_thread=False
+            )
+
+            self.connection.row_factory = sqlite3.Row
+
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS subscribers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    phone TEXT NOT NULL,
+                    plate TEXT NOT NULL,
+                    visit_date TEXT NOT NULL,
+                    expire_date TEXT NOT NULL,
+                    sms_status TEXT DEFAULT 'در انتظار',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            self.connection.commit()
+
+            logger.info("Database initialized successfully")
+
+        except Exception as e:
+            logger.error(f"Database initialization error: {e}")
             raise
 
-    def close(self) -> None:
-        """Closes the database connection if it is open."""
-        # Check if a connection object exists.
-        if self.conn:
-            # Close the database connection.
-            self.conn.close()
-            # Log the action.
-            log.info("Database connection closed.")
+    def _calculate_expire_date(self, visit_date: str) -> str:
+        """
+        محاسبه تاریخ انقضا
+        یک سال بعد از تاریخ مراجعه
+        """
+        try:
+            parts = visit_date.split('/')
 
-    def create_table(self) -> None:
-        """
-        Creates the 'customers' table if it does not already exist.
-        
-        The table stores customer information. The 'plate_number' column
-        is defined as UNIQUE to prevent duplicate entries for the same vehicle.
-        """
-        # Ensure there is an active connection.
-        if not self.conn:
-            log.error("Cannot create table: No active database connection.")
-            return
+            year = int(parts[0])
+            month = int(parts[1])
+            day = int(parts[2])
+
+            visit_jdate = jdatetime(year, month, day)
+
+            expire_jdate = visit_jdate.replace(
+                year=visit_jdate.year + 1
+            )
+
+            return expire_jdate.strftime('%Y/%m/%d')
+
+        except Exception as e:
+            logger.error(f"Expire date calculation error: {e}")
+            return visit_date
+
+    def add_subscriber(
+        self,
+        phone: str,
+        plate: str,
+        visit_date: str
+    ) -> bool:
+        """افزودن مشترک"""
 
         try:
-            # SQL statement to create the customers table.
-            # "IF NOT EXISTS" prevents an error if the table already exists.
-            # "UNIQUE" on plate_number ensures each vehicle is registered only once.
-            create_table_query = """
-            CREATE TABLE IF NOT EXISTS customers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                plate_number TEXT NOT NULL UNIQUE,
-                phone_number TEXT NOT NULL,
-                expiry_date TEXT NOT NULL,
-                sms_status TEXT DEFAULT 'Pending'
-            );
-            """
-            # Create a cursor object to execute SQL commands.
-            cursor = self.conn.cursor()
-            # Execute the SQL statement.
-            cursor.execute(create_table_query)
-            # Commit the changes to the database.
-            self.conn.commit()
-            # Log the successful creation of the table.
-            log.info("'customers' table created or already exists.")
-        except sqlite3.Error as e:
-            # Log any error that occurs during table creation.
-            log.error(f"Error creating table: {e}")
+            expire_date = self._calculate_expire_date(
+                visit_date
+            )
 
-    def add_customer(self, plate: str, phone: str, expiry_date: str) -> bool:
-        """
-        Adds a new customer record to the database.
+            cursor = self.connection.cursor()
 
-        Args:
-            plate (str): The car's license plate number.
-            phone (str): The customer's mobile phone number.
-            expiry_date (str): The inspection expiry date in 'YYYY-MM-DD' format.
-            
-        Returns:
-            bool: True if the customer was added successfully, False if the
-                  plate number already exists or another error occurred.
-        """
-        # Ensure there is an active connection.
-        if not self.conn:
-            log.error("Cannot add customer: No active database connection.")
-            return False
+            cursor.execute("""
+                INSERT INTO subscribers (
+                    phone,
+                    plate,
+                    visit_date,
+                    expire_date,
+                    sms_status
+                )
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                phone,
+                plate,
+                visit_date,
+                expire_date,
+                "در انتظار"
+            ))
 
-        try:
-            # SQL statement for inserting a new record.
-            # Using '?' placeholders is a security best practice to prevent SQL injection.
-            insert_query = "INSERT INTO customers (plate_number, phone_number, expiry_date) VALUES (?, ?, ?)"
-            # Create a cursor object.
-            cursor = self.conn.cursor()
-            # Execute the query with the provided data tuple.
-            cursor.execute(insert_query, (plate, phone, expiry_date))
-            # Commit the transaction to save the record.
-            self.conn.commit()
-            # Log the successful insertion.
-            log.info(f"Added customer: Plate={plate}, Phone={phone}")
+            self.connection.commit()
+
+            logger.info(f"Subscriber added: {plate}")
+
             return True
-        except sqlite3.IntegrityError:
-            # This specific error is raised when the UNIQUE constraint on plate_number fails.
-            log.warning(f"Attempted to add a duplicate plate number: {plate}")
-            return False
-        except sqlite3.Error as e:
-            # Log any other database error during insertion.
-            log.error(f"Failed to add customer {plate}: {e}")
+
+        except Exception as e:
+            logger.error(f"Add subscriber error: {e}")
             return False
 
-    def get_all_customers(self) -> List[Tuple]:
+    def add_subscribers_bulk(
+        self,
+        subscribers: List[Tuple[str, str, str]]
+    ) -> int:
         """
-        Retrieves all customer records from the database.
+        افزودن گروهی مشترکین
 
-        Returns:
-            List[Tuple]: A list of tuples, where each tuple represents a customer record.
-                         Returns an empty list if no records are found or an error occurs.
+        فرمت:
+        [
+            (phone, plate, visit_date),
+            ...
+        ]
         """
-        # Ensure there is an active connection.
-        if not self.conn:
-            log.error("Cannot get customers: No active database connection.")
+
+        inserted_count = 0
+
+        try:
+            cursor = self.connection.cursor()
+
+            for phone, plate, visit_date in subscribers:
+
+                expire_date = self._calculate_expire_date(
+                    visit_date
+                )
+
+                cursor.execute("""
+                    INSERT INTO subscribers (
+                        phone,
+                        plate,
+                        visit_date,
+                        expire_date,
+                        sms_status
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    phone,
+                    plate,
+                    visit_date,
+                    expire_date,
+                    "در انتظار"
+                ))
+
+                inserted_count += 1
+
+            self.connection.commit()
+
+            logger.info(
+                f"{inserted_count} subscribers added"
+            )
+
+            return inserted_count
+
+        except Exception as e:
+            logger.error(f"Bulk insert error: {e}")
+            return 0
+
+    def get_all_subscribers(self) -> List[Dict]:
+        """دریافت همه مشترکین"""
+
+        try:
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                SELECT *
+                FROM subscribers
+                ORDER BY id DESC
+            """)
+
+            rows = cursor.fetchall()
+
+            return [dict(row) for row in rows]
+
+        except Exception as e:
+            logger.error(f"Get subscribers error: {e}")
             return []
 
+    def get_subscriber_by_id(
+        self,
+        subscriber_id: int
+    ) -> Optional[Dict]:
+        """دریافت مشترک با شناسه"""
+
         try:
-            # SQL query to select relevant columns from the customers table.
-            select_query = "SELECT plate_number, phone_number, expiry_date, sms_status FROM customers"
-            # Create a cursor.
-            cursor = self.conn.cursor()
-            # Execute the query.
-            cursor.execute(select_query)
-            # Fetch all rows from the query result.
-            return cursor.fetchall()
-        except sqlite3.Error as e:
-            # Log any error during data retrieval.
-            log.error(f"Failed to retrieve customers: {e}")
-            # Return an empty list in case of an error.
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                SELECT *
+                FROM subscribers
+                WHERE id = ?
+            """, (subscriber_id,))
+
+            row = cursor.fetchone()
+
+            if row:
+                return dict(row)
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Get subscriber by id error: {e}")
+            return None
+
+    def get_subscribers_for_reminder(
+        self,
+        target_expire_date: str
+    ) -> List[Dict]:
+        """
+        دریافت مشترکینی که باید پیامک دریافت کنند
+        """
+
+        try:
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                SELECT *
+                FROM subscribers
+                WHERE expire_date = ?
+                AND sms_status != 'ارسال شد'
+            """, (target_expire_date,))
+
+            rows = cursor.fetchall()
+
+            return [dict(row) for row in rows]
+
+        except Exception as e:
+            logger.error(f"Reminder query error: {e}")
             return []
 
-    def update_customer_status(self, plate_number: str, new_status: str) -> None:
-        """
-        Updates the SMS status for a specific customer identified by plate number.
-
-        Args:
-            plate_number (str): The license plate of the customer to update.
-            new_status (str): The new status to set (e.g., 'Sent', 'Failed').
-        """
-        # Ensure there is an active connection.
-        if not self.conn:
-            log.error("Cannot update status: No active database connection.")
-            return
+    def update_sms_status(
+        self,
+        subscriber_id: int,
+        status: str
+    ) -> bool:
+        """آپدیت وضعیت پیامک"""
 
         try:
-            # SQL statement to update the sms_status for a given plate_number.
-            update_query = "UPDATE customers SET sms_status = ? WHERE plate_number = ?"
-            # Create a cursor.
-            cursor = self.conn.cursor()
-            # Execute the update command with the new status and plate number.
-            cursor.execute(update_query, (new_status, plate_number))
-            # Commit the changes to the database.
-            self.conn.commit()
-            
-            # cursor.rowcount tells us how many rows were affected.
-            if cursor.rowcount > 0:
-                # Log a success message if at least one row was updated.
-                log.info(f"Updated status for plate {plate_number} to '{new_status}'.")
-            else:
-                # Log a warning if no matching plate number was found.
-                log.warning(f"No customer found with plate {plate_number} to update.")
-        except sqlite3.Error as e:
-            # Log any error that occurs during the update.
-            log.error(f"Failed to update status for plate {plate_number}: {e}")
+            cursor = self.connection.cursor()
 
-    def delete_all_customers(self) -> None:
-        """
-        Deletes all records from the 'customers' table. This is a destructive
-        operation and should be used with caution.
-        """
-        # Ensure there is an active connection.
-        if not self.conn:
-            log.error("Cannot delete customers: No active database connection.")
-            return
-            
+            cursor.execute("""
+                UPDATE subscribers
+                SET sms_status = ?
+                WHERE id = ?
+            """, (
+                status,
+                subscriber_id
+            ))
+
+            self.connection.commit()
+
+            logger.info(
+                f"SMS status updated for ID {subscriber_id}"
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Update sms status error: {e}")
+            return False
+
+    def delete_subscriber(
+        self,
+        subscriber_id: int
+    ) -> bool:
+        """حذف مشترک"""
+
         try:
-            # SQL statement to delete all rows from the table.
-            delete_query = "DELETE FROM customers"
-            # Create a cursor.
-            cursor = self.conn.cursor()
-            # Execute the delete command.
-            cursor.execute(delete_query)
-            # Commit the changes.
-            self.conn.commit()
-            # Log the action.
-            log.info("All customer records have been deleted.")
-        except sqlite3.Error as e:
-            # Log any error during deletion.
-            log.error(f"Failed to delete all customers: {e}")
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                DELETE FROM subscribers
+                WHERE id = ?
+            """, (subscriber_id,))
+
+            self.connection.commit()
+
+            logger.info(
+                f"Subscriber deleted: {subscriber_id}"
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Delete subscriber error: {e}")
+            return False
+
+    def delete_all_subscribers(self) -> bool:
+        """حذف همه مشترکین"""
+
+        try:
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                DELETE FROM subscribers
+            """)
+
+            self.connection.commit()
+
+            logger.warning("All subscribers deleted")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Delete all error: {e}")
+            return False
+
+    def get_total_count(self) -> int:
+        """تعداد کل مشترکین"""
+
+        try:
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                SELECT COUNT(*) as total
+                FROM subscribers
+            """)
+
+            row = cursor.fetchone()
+
+            return row["total"]
+
+        except Exception as e:
+            logger.error(f"Count error: {e}")
+            return 0
+
+    def reset_all_sms_status(self) -> bool:
+        """ریست وضعیت پیامک همه رکوردها"""
+
+        try:
+            cursor = self.connection.cursor()
+
+            cursor.execute("""
+                UPDATE subscribers
+                SET sms_status = 'در انتظار'
+            """)
+
+            self.connection.commit()
+
+            logger.info("All sms statuses reset")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Reset sms status error: {e}")
+            return False
+
+    def close(self):
+        """بستن اتصال دیتابیس"""
+
+        try:
+            if self.connection:
+                self.connection.close()
+                logger.info("Database connection closed")
+
+        except Exception as e:
+            logger.error(f"Close connection error: {e}")

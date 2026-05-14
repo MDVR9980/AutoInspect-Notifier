@@ -1,56 +1,261 @@
-import schedule
-import time
+"""
+مدیریت زمان‌بندی ارسال پیامک‌ها
+"""
 import logging
-import threading
-from tasks.auto_task import run_notification_task # Import the SMS task
-from core.backup_manager import backup_manager       # Import the backup manager instance
+from datetime import timedelta
 
-# Setup logging for this module
-log = logging.getLogger(__name__)
+import jdatetime
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
+from core.db_manager import DatabaseManager
+from core.sms_api import SMSManager
+from settings import (
+    REMINDER_DAYS_BEFORE,
+    SEND_TIME_HOUR,
+    SEND_TIME_MINUTE
+)
 
-def run_pending_tasks():
-    """
-    An infinite loop that runs pending scheduled jobs.
-    
-    This function is designed to be the target of a background thread.
-    """
-    log.info("Scheduler thread started. Waiting for scheduled jobs.")
-    while True:
-        # Checks if any job is due to run.
-        schedule.run_pending()
-        # Waits for one second before checking again to avoid busy-waiting.
-        time.sleep(1)
+logger = logging.getLogger(__name__)
 
 
-def start_scheduler():
-    """
-    Configures and starts the background scheduler.
+class TaskScheduler:
+    """مدیریت زمان‌بندی ارسال خودکار پیامک‌ها"""
 
-    This function sets up the daily jobs for sending SMS and creating backups,
-    and then starts the scheduler loop in a non-blocking daemon thread.
-    """
-    # Configure Jobs
+    def __init__(self, db_manager: DatabaseManager, sms_manager: SMSManager):
+        self.db_manager = db_manager
+        self.sms_manager = sms_manager
 
-    # Schedule the SMS notification process to run every day at a specific time.
-    # The time '10:00' can be adjusted as needed.
-    schedule.every().day.at("10:00").do(run_notification_task)
-    log.info("Scheduled daily SMS check at 10:00.")
+        self.scheduler = BackgroundScheduler()
+        self.scheduler.start()
 
-    # Schedule the database backup process to run every day at a different time.
-    # The time '01:00' (1 AM) is chosen for off-peak hours.
-    schedule.every().day.at("01:00").do(backup_manager.create_backup)
-    log.info("Scheduled daily database backup at 01:00.")
+        logger.info("زمان‌بند راه‌اندازی شد")
 
-    # Start the Scheduler Thread
+    def start_daily_task(self):
+        """راه‌اندازی وظیفه روزانه"""
 
-    # Create a new thread that will run the 'run_pending_tasks' function.
-    # Using a thread ensures that the scheduler does not block the main GUI.
-    scheduler_thread = threading.Thread(target=run_pending_tasks)
-    
-    # Set 'daemon=True' so the thread will automatically exit when the main program closes.
-    scheduler_thread.daemon = True
-    
-    # Start the thread.
-    scheduler_thread.start()
-    log.info("Scheduler background thread has been started.")
+        try:
+            # حذف تسک قبلی در صورت وجود
+            if self.scheduler.get_job('daily_sms_task'):
+                self.scheduler.remove_job('daily_sms_task')
+
+            trigger = CronTrigger(
+                hour=SEND_TIME_HOUR,
+                minute=SEND_TIME_MINUTE
+            )
+
+            self.scheduler.add_job(
+                func=self.check_and_send_reminders,
+                trigger=trigger,
+                id='daily_sms_task',
+                name='ارسال روزانه پیامک یادآوری',
+                replace_existing=True
+            )
+
+            logger.info(
+                f"وظیفه روزانه برای ساعت "
+                f"{SEND_TIME_HOUR}:{SEND_TIME_MINUTE:02d} تنظیم شد"
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"خطا در تنظیم وظیفه روزانه: {str(e)}")
+            return False
+
+    def check_and_send_reminders(self):
+        """بررسی و ارسال پیامک‌های یادآوری"""
+
+        logger.info("شروع بررسی پیامک‌های یادآوری")
+
+        try:
+            today = jdatetime.date.today()
+
+            # تاریخ انقضایی که باید امروز برایش پیامک ارسال شود
+            target_expire_date = today + timedelta(days=REMINDER_DAYS_BEFORE)
+
+            target_expire_date_str = target_expire_date.strftime('%Y/%m/%d')
+
+            logger.info(
+                f"بررسی پیامک‌ها برای تاریخ انقضا: "
+                f"{target_expire_date_str}"
+            )
+
+            subscribers = self.db_manager.get_subscribers_for_reminder(
+                target_expire_date_str
+            )
+
+            if not subscribers:
+                logger.info("هیچ مشترکی برای ارسال پیامک یافت نشد")
+                return {
+                    'success': 0,
+                    'failed': 0,
+                    'total': 0
+                }
+
+            success_count = 0
+            failed_count = 0
+
+            for subscriber in subscribers:
+                try:
+                    subscriber_id = subscriber[0]
+                    phone = subscriber[1]
+                    plate = subscriber[2]
+                    expire_date = subscriber[3]
+
+                    logger.info(f"ارسال پیامک به {phone}")
+
+                    send_result = self.sms_manager.send_reminder(
+                        phone_number=phone,
+                        plate_number=plate,
+                        expire_date=expire_date
+                    )
+
+                    if send_result:
+                        self.db_manager.update_sms_status(
+                            subscriber_id,
+                            'ارسال شد'
+                        )
+
+                        success_count += 1
+
+                        logger.info(
+                            f"پیامک با موفقیت به {phone} ارسال شد"
+                        )
+
+                    else:
+                        failed_count += 1
+
+                        logger.error(
+                            f"ارسال پیامک به {phone} ناموفق بود"
+                        )
+
+                except Exception as e:
+                    failed_count += 1
+
+                    logger.error(
+                        f"خطا در ارسال پیامک به مشترک: {str(e)}"
+                    )
+
+            logger.info(
+                f"پایان ارسال پیامک‌ها | "
+                f"موفق: {success_count} | "
+                f"ناموفق: {failed_count}"
+            )
+
+            return {
+                'success': success_count,
+                'failed': failed_count,
+                'total': len(subscribers)
+            }
+
+        except Exception as e:
+            logger.error(f"خطا در بررسی پیامک‌ها: {str(e)}")
+
+            return {
+                'success': 0,
+                'failed': 0,
+                'total': 0
+            }
+
+    def check_missed_tasks(self):
+        """
+        بررسی پیامک‌های از دست رفته
+        زمانی که برنامه یا سیستم خاموش بوده
+        """
+
+        logger.info("بررسی وظایف از دست رفته")
+
+        try:
+            today = jdatetime.date.today()
+
+            total_sent = 0
+
+            # بررسی چند روز اخیر
+            for days_back in range(REMINDER_DAYS_BEFORE + 1):
+
+                check_day = today - timedelta(days=days_back)
+
+                target_expire_date = (
+                    check_day + timedelta(days=REMINDER_DAYS_BEFORE)
+                )
+
+                target_expire_date_str = target_expire_date.strftime(
+                    '%Y/%m/%d'
+                )
+
+                subscribers = self.db_manager.get_subscribers_for_reminder(
+                    target_expire_date_str
+                )
+
+                if not subscribers:
+                    continue
+
+                logger.info(
+                    f"{len(subscribers)} پیامک عقب‌افتاده یافت شد"
+                )
+
+                for subscriber in subscribers:
+                    try:
+                        subscriber_id = subscriber[0]
+                        phone = subscriber[1]
+                        plate = subscriber[2]
+                        expire_date = subscriber[3]
+
+                        send_result = self.sms_manager.send_reminder(
+                            phone_number=phone,
+                            plate_number=plate,
+                            expire_date=expire_date
+                        )
+
+                        if send_result:
+                            self.db_manager.update_sms_status(
+                                subscriber_id,
+                                'ارسال شد'
+                            )
+
+                            total_sent += 1
+
+                            logger.info(
+                                f"پیامک عقب‌افتاده به {phone} ارسال شد"
+                            )
+
+                    except Exception as e:
+                        logger.error(
+                            f"خطا در ارسال پیامک عقب‌افتاده: {str(e)}"
+                        )
+
+            logger.info(
+                f"بررسی وظایف عقب‌افتاده پایان یافت | "
+                f"تعداد ارسال: {total_sent}"
+            )
+
+            return total_sent
+
+        except Exception as e:
+            logger.error(f"خطا در بررسی وظایف عقب‌افتاده: {str(e)}")
+            return 0
+
+    def get_jobs(self):
+        """دریافت لیست وظایف"""
+
+        try:
+            return self.scheduler.get_jobs()
+
+        except Exception as e:
+            logger.error(f"خطا در دریافت وظایف: {str(e)}")
+            return []
+
+    def shutdown(self):
+        """توقف زمان‌بند"""
+
+        try:
+            self.scheduler.shutdown(wait=False)
+
+            logger.info("زمان‌بند متوقف شد")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"خطا در توقف زمان‌بند: {str(e)}")
+            return False

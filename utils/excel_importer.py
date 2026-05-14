@@ -1,61 +1,329 @@
-import pandas as pd
-import logging
-#
-# !! CHANGE HERE !!
-# We import the CLASS, not an instance.
-from core.db_manager import DatabaseManager
+# utils/excel_importer.py
 
-def import_customers_from_excel(file_path: str, db_manager: DatabaseManager) -> tuple[int, int]:
-    """
-    Reads customer data from an Excel file and adds them to the database.
+"""
+ماژول وارد کردن داده‌ها از فایل‌های اکسل
+"""
 
-    Args:
-        file_path (str): The path to the Excel file.
-        db_manager (DatabaseManager): An instance of the database manager to use.
+from pathlib import Path
+from typing import List, Tuple, Optional
 
-    Returns:
-        tuple[int, int]: A tuple containing (successful_imports, failed_imports).
-    """
-    if not file_path:
-        return 0, 0
+import openpyxl
 
-    try:
-        df = pd.read_excel(file_path)
 
-        # Ensure required columns exist
-        required_columns = ['name', 'phone', 'car_model', 'car_id', 'last_service_date', 'inspection_expiry_date']
-        if not all(col in df.columns for col in required_columns):
-            logging.error(f"Excel file is missing one of the required columns: {required_columns}")
-            return 0, len(df)
+class ExcelImporter:
+    """کلاس مدیریت ورود داده از فایل اکسل"""
 
-        successful_imports = 0
-        failed_imports = 0
+    def __init__(self):
+        self.supported_extensions = [".xlsx", ".xls"]
 
-        for _, row in df.iterrows():
-            try:
-                # Add customer using the provided db_manager instance
-                is_added = db_manager.add_customer(
-                    name=row['name'],
-                    phone=str(row['phone']),
-                    car_model=row['car_model'],
-                    car_id=str(row['car_id']),
-                    last_service_date=str(row['last_service_date']),
-                    inspection_expiry_date=str(row['inspection_expiry_date'])
+    def read_excel(
+        self,
+        file_path: str,
+        sheet_name: Optional[str] = None
+    ) -> Tuple[bool, List[dict], str]:
+        """
+        خواندن فایل اکسل
+
+        Returns:
+            (success, data, message)
+        """
+
+        try:
+            path = Path(file_path)
+
+            # بررسی وجود فایل
+            if not path.exists():
+                return False, [], "فایل یافت نشد"
+
+            # بررسی فرمت فایل
+            if path.suffix.lower() not in self.supported_extensions:
+                return (
+                    False,
+                    [],
+                    f"فرمت فایل پشتیبانی نمی‌شود: {path.suffix}"
                 )
-                if is_added:
-                    successful_imports += 1
-                else:
-                    failed_imports += 1 # Likely a duplicate
-            except Exception as e:
-                logging.warning(f"Could not process row {row.to_dict()}: {e}")
-                failed_imports += 1
-        
-        logging.info(f"Import finished. Successful: {successful_imports}, Failed/Duplicates: {failed_imports}")
-        return successful_imports, failed_imports
 
-    except FileNotFoundError:
-        logging.error(f"Excel file not found at path: {file_path}")
-        return 0, 0
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during Excel import: {e}")
-        return 0, 0
+            # بارگذاری فایل
+            workbook = openpyxl.load_workbook(
+                file_path,
+                data_only=True
+            )
+
+            # انتخاب شیت
+            if sheet_name:
+                if sheet_name not in workbook.sheetnames:
+                    return (
+                        False,
+                        [],
+                        f"شیت {sheet_name} یافت نشد"
+                    )
+
+                sheet = workbook[sheet_name]
+            else:
+                sheet = workbook.active
+
+            rows = list(sheet.iter_rows(values_only=True))
+
+            if not rows:
+                workbook.close()
+                return False, [], "فایل اکسل خالی است"
+
+            # هدرها
+            headers = []
+            for index, header in enumerate(rows[0], start=1):
+                if header:
+                    headers.append(str(header).strip())
+                else:
+                    headers.append(f"column_{index}")
+
+            # داده‌ها
+            data = []
+
+            for row in rows[1:]:
+
+                # رد کردن سطر خالی
+                if not any(row):
+                    continue
+
+                item = {}
+
+                for header, value in zip(headers, row):
+
+                    if value is None:
+                        item[header] = ""
+                    else:
+                        item[header] = str(value).strip()
+
+                data.append(item)
+
+            workbook.close()
+
+            if not data:
+                return False, [], "هیچ داده‌ای پیدا نشد"
+
+            return (
+                True,
+                data,
+                f"{len(data)} رکورد خوانده شد"
+            )
+
+        except PermissionError:
+            return (
+                False,
+                [],
+                "فایل در حال استفاده است، لطفاً آن را ببندید"
+            )
+
+        except Exception as e:
+            return (
+                False,
+                [],
+                f"خطا در خواندن فایل اکسل: {str(e)}"
+            )
+
+    def extract_phone_and_plate(
+        self,
+        data: List[dict]
+    ) -> List[Tuple[str, str]]:
+        """
+        استخراج شماره موبایل و پلاک
+        """
+
+        results = []
+
+        phone_keys = [
+            "شماره موبایل",
+            "موبایل",
+            "شماره",
+            "mobile",
+            "phone",
+            "Phone",
+            "Mobile"
+        ]
+
+        plate_keys = [
+            "پلاک",
+            "شماره پلاک",
+            "plate",
+            "Plate",
+            "license_plate"
+        ]
+
+        for row in data:
+
+            phone = ""
+            plate = ""
+
+            # پیدا کردن شماره موبایل
+            for key in phone_keys:
+                if key in row and row[key]:
+                    phone = self._clean_phone(row[key])
+                    break
+
+            # پیدا کردن پلاک
+            for key in plate_keys:
+                if key in row and row[key]:
+                    plate = self._clean_plate(row[key])
+                    break
+
+            if phone and plate:
+                results.append((phone, plate))
+
+        return results
+
+    def validate_phone(self, phone: str) -> bool:
+        """
+        اعتبارسنجی شماره موبایل
+        """
+
+        if not phone:
+            return False
+
+        phone = self._clean_phone(phone)
+
+        if len(phone) != 11:
+            return False
+
+        if not phone.startswith("09"):
+            return False
+
+        return phone.isdigit()
+
+    def validate_plate(self, plate: str) -> bool:
+        """
+        اعتبارسنجی پلاک
+        """
+
+        if not plate:
+            return False
+
+        plate = self._clean_plate(plate)
+
+        return len(plate) >= 5
+
+    def process_excel_data(
+        self,
+        data: List[dict]
+    ) -> Tuple[List[dict], List[dict]]:
+        """
+        پردازش و اعتبارسنجی داده‌های اکسل
+
+        Returns:
+            (valid_data, invalid_data)
+        """
+
+        valid_data = []
+        invalid_data = []
+
+        extracted = self.extract_phone_and_plate(data)
+
+        for phone, plate in extracted:
+
+            item = {
+                "phone": phone,
+                "plate": plate
+            }
+
+            errors = []
+
+            if not self.validate_phone(phone):
+                errors.append("شماره موبایل نامعتبر")
+
+            if not self.validate_plate(plate):
+                errors.append("پلاک نامعتبر")
+
+            if errors:
+                item["errors"] = errors
+                invalid_data.append(item)
+            else:
+                valid_data.append(item)
+
+        return valid_data, invalid_data
+
+    def get_sheet_names(self, file_path: str) -> Tuple[bool, List[str], str]:
+        """
+        دریافت نام شیت‌ها
+        """
+
+        try:
+            workbook = openpyxl.load_workbook(
+                file_path,
+                read_only=True
+            )
+
+            sheet_names = workbook.sheetnames
+
+            workbook.close()
+
+            return True, sheet_names, "لیست شیت‌ها دریافت شد"
+
+        except Exception as e:
+            return (
+                False,
+                [],
+                f"خطا در خواندن شیت‌ها: {str(e)}"
+            )
+
+    def preview_data(
+        self,
+        file_path: str,
+        rows_count: int = 5
+    ) -> Tuple[bool, List[dict], str]:
+        """
+        پیش‌نمایش چند سطر اول فایل
+        """
+
+        success, data, message = self.read_excel(file_path)
+
+        if not success:
+            return False, [], message
+
+        preview = data[:rows_count]
+
+        return (
+            True,
+            preview,
+            f"{len(preview)} سطر برای پیش‌نمایش آماده شد"
+        )
+
+    def _clean_phone(self, phone: str) -> str:
+        """
+        پاکسازی شماره موبایل
+        """
+
+        phone = str(phone).strip()
+
+        replacements = [
+            " ",
+            "-",
+            "(",
+            ")",
+            "+98",
+            ".0"
+        ]
+
+        for item in replacements:
+            phone = phone.replace(item, "")
+
+        if phone.startswith("98") and len(phone) == 12:
+            phone = "0" + phone[2:]
+
+        return phone
+
+    def _clean_plate(self, plate: str) -> str:
+        """
+        پاکسازی پلاک
+        """
+
+        plate = str(plate).strip()
+
+        replacements = [
+            "-",
+            "_",
+            "  "
+        ]
+
+        for item in replacements:
+            plate = plate.replace(item, " ")
+
+        return " ".join(plate.split())

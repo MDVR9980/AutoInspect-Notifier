@@ -1,98 +1,79 @@
+"""
+فایل اصلی برنامه
+"""
 import sys
 import logging
-import os
-from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt
 
-# Local Imports
-from settings import DATA_DIR, BACKUP_DIR, LOG_DIR, LOG_FILE_PATH
-from ui.main_window import MainWindow
-from tasks.scheduler import start_scheduler
-from core.db_manager import DatabaseManager
-from settings import DB_FILE_PATH
+import settings
+from db_manager import DatabaseManager
+from main_window import MainWindow
+from scheduler import TaskScheduler
+
 
 def setup_logging():
-    """
-    Configures the application-wide logging.
-
-    Logs are sent to both the console and a rotating file (`logs/app.log`).
-    File rotation keeps the log file from growing indefinitely.
-    """
-    # Create the logs directory if it doesn't exist.
-    LOG_DIR.mkdir(exist_ok=True)
-
-    # Create a logger instance
-    # Get the root logger. All other loggers in the app will inherit from this.
-    log = logging.getLogger()
-    log.setLevel(logging.INFO) # Set the minimum level of messages to handle.
-
-    # Create a formatter
-    # Defines the format of the log messages.
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+    """راه‌اندازی سیستم لاگ"""
+    settings.LOG_DIR.mkdir(exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(settings.LOG_FILE_PATH, encoding='utf-8'),
+            logging.StreamHandler()
+        ]
     )
+    return logging.getLogger(__name__)
 
-    # Console Handler
-    # Sends log messages to the standard output (the console).
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    log.addHandler(console_handler)
-
-    # File Handler
-    # Writes log messages to a file.
-    # RotatingFileHandler manages log files, creating new ones when they reach a certain size.
-    file_handler = RotatingFileHandler(
-        LOG_FILE_PATH, maxBytes=5*1024*1024, backupCount=2 # 5 MB per file, 2 backups
-    )
-    file_handler.setFormatter(formatter)
-    log.addHandler(file_handler)
-
-    log.info("Logging configured successfully.")
-
-def ensure_directories_exist():
-    """
-    Creates the necessary data and backup directories if they don't already exist.
-    This prevents errors when the application tries to write files.
-    """
-    try:
-        DATA_DIR.mkdir(exist_ok=True)
-        BACKUP_DIR.mkdir(exist_ok=True)
-        LOG_DIR.mkdir(exist_ok=True)
-        logging.info("Ensured all necessary directories exist.")
-    except OSError as e:
-        logging.error(f"Failed to create necessary directories: {e}", exc_info=True)
-        # In a real app, you might want to show an error dialog and exit.
-        sys.exit(1) # Exit if we can't create essential folders.
 
 def main():
-    """
-    The main entry point of the application.
-    """
-    # 1. Configure logging as the very first step.
-    setup_logging()
-
-    # 2. Ensure all required folders exist.
-    ensure_directories_exist()
-
-    # 3. Initialize the database connection and tables.
-    db_manager = DatabaseManager(DB_FILE_PATH)
-    db_manager.connect()
-    db_manager.create_table()   
+    """تابع اصلی برنامه"""
+    # راه‌اندازی لاگ
+    logger = setup_logging()
+    logger.info("شروع برنامه")
     
-    # 4. Start the background scheduler thread.
-    # This will handle daily SMS checks and backups without freezing the UI.
-    scheduler_thread = start_scheduler()
-    logging.info("Background scheduler started.")
+    try:
+        # ایجاد برنامه Qt
+        app = QApplication(sys.argv)
+        app.setApplicationName(settings.APP_NAME)
+        app.setApplicationVersion(settings.APP_VERSION)
+        
+        # تنظیم آیکون برنامه
+        if settings.APP_ICON_PATH.exists():
+            app.setWindowIcon(QIcon(str(settings.APP_ICON_PATH)))
+        
+        # راه‌اندازی دیتابیس
+        db = DatabaseManager()
+        logger.info("دیتابیس راه‌اندازی شد")
+        
+        # راه‌اندازی زمان‌بند
+        scheduler = TaskScheduler(db)
+        scheduler.start()
+        logger.info("زمان‌بند راه‌اندازی شد")
+        
+        # ایجاد و نمایش پنجره اصلی
+        window = MainWindow(db, scheduler)
+        window.setWindowTitle(settings.APP_TITLE)
+        window.show()
+        
+        logger.info("پنجره اصلی نمایش داده شد")
+        
+        # اجرای برنامه
+        exit_code = app.exec()
+        
+        # توقف زمان‌بند
+        scheduler.stop()
+        logger.info("برنامه بسته شد")
+        
+        return exit_code
+        
+    except Exception as e:
+        logger.error(f"خطا در اجرای برنامه: {e}", exc_info=True)
+        return 1
 
-    # 5. Create and run the PyQt application.
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-
-    # Start the application's event loop.
-    # The sys.exit() ensures a clean exit.
-    sys.exit(app.exec())
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

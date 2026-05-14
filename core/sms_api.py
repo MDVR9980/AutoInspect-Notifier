@@ -1,81 +1,123 @@
-# autoinspect-notifier/core/sms_api.py
-
+"""
+مدیریت ارسال پیامک از طریق API قاصدک
+"""
 import requests
 import logging
-from settings import GHASDAK_API_KEY # Import the API key from the central settings file
+from typing import Optional
 
-# --- Setup logging for this module ---
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
-class SmsApiClient:
-    """
-    A client to interact with the Ghasdak SMS API.
-
-    This class handles the sending of SMS messages by making HTTP requests
-    to the provider's API endpoint.
-    """
-
-    # The base URL for the Ghasdak API.
-    API_URL = "http://api.ghasedaksms.com/v2/sms/send/simple"
-
-    def __init__(self, api_key: str):
-        """
-        Initializes the SMS API client.
-
-        Args:
-            api_key (str): The API key for authenticating with the service.
-        """
-        # Store the API key provided during instantiation.
+class SMSManager:
+    def __init__(self, api_key: str, line_number: str):
         self.api_key = api_key
+        self.line_number = line_number
+        self.base_url = "https://api.ghasedak.me/v2/sms/send/simple"
 
-    def send_sms(self, receptor: str, message: str) -> bool:
+    def build_message(self, plate: str, expire_date: str) -> str:
         """
-        Sends a single SMS message to a specified recipient.
-
-        Args:
-            receptor (str): The recipient's mobile number.
-            message (str): The text content of the message.
-
-        Returns:
-            bool: True if the message was sent successfully (API returned status 200),
-                  False otherwise.
+        ساخت متن پیامک
         """
-        # Ensure the API key is set before proceeding.
-        if not self.api_key or self.api_key == "YOUR_API_KEY_HERE":
-            log.error("SMS API key is not configured in settings.py.")
-            return False
+        message = (
+            f"یادآوری معاینه فنی\n"
+            f"پلاک: {plate}\n"
+            f"تاریخ انقضا: {expire_date}\n"
+            f"لطفاً نسبت به تمدید معاینه فنی خودرو اقدام فرمایید."
+        )
+        return message
 
-        # Prepare the data payload for the POST request.
-        # This structure is based on the Ghasdak API documentation.
-        payload = {
-            'receptor': receptor,
-            'message': message,
-        }
-        
-        # Prepare the headers for the HTTP request, including the API key.
-        headers = {
-            'apikey': self.api_key,
-        }
-
+    def send_sms(
+        self,
+        phone: str,
+        plate: str,
+        expire_date: str
+    ) -> bool:
+        """
+        ارسال پیامک به یک شماره
+        """
         try:
-            # Send the POST request to the API endpoint.
-            # A timeout is set to prevent the application from hanging indefinitely.
-            response = requests.post(self.API_URL, data=payload, headers=headers, timeout=10)
-            
-            # Raise an exception for bad status codes (4xx or 5xx).
-            response.raise_for_status()
+            message = self.build_message(plate, expire_date)
 
-            # Log the successful response from the API.
-            log.info(f"SMS sent successfully to {receptor}. Response: {response.json()}")
-            return True
+            payload = {
+                "message": message,
+                "receptor": phone,
+                "linenumber": self.line_number
+            }
+
+            headers = {
+                "apikey": self.api_key,
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+
+            response = requests.post(
+                self.base_url,
+                data=payload,
+                headers=headers,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+
+                if result.get("result", {}).get("code") == 200:
+                    logger.info(
+                        f"SMS sent successfully to {phone}"
+                    )
+                    return True
+                else:
+                    logger.error(
+                        f"SMS API error: {result}"
+                    )
+                    return False
+            else:
+                logger.error(
+                    f"HTTP error {response.status_code}: {response.text}"
+                )
+                return False
+
+        except requests.exceptions.Timeout:
+            logger.error(f"SMS timeout for {phone}")
+            return False
 
         except requests.exceptions.RequestException as e:
-            # Catch any network-related errors (e.g., timeout, connection error).
-            log.error(f"Failed to send SMS to {receptor}. Network or API error: {e}")
+            logger.error(f"SMS request error: {e}")
             return False
 
-# --- Global Instance ---
-# Create a single, reusable instance of the client using the key from settings.
-# This instance can be imported and used by other parts of the application.
-sms_client = SmsApiClient(api_key=GHASDAK_API_KEY)
+        except Exception as e:
+            logger.error(f"SMS send error: {e}")
+            return False
+
+    def send_bulk_sms(
+        self,
+        subscribers: list
+    ) -> dict:
+        """
+        ارسال دسته‌ای پیامک
+        
+        بازگشت:
+        {
+            "success": تعداد موفق,
+            "failed": تعداد ناموفق
+        }
+        """
+        success_count = 0
+        failed_count = 0
+
+        for subscriber in subscribers:
+            phone = subscriber.get("phone")
+            plate = subscriber.get("plate")
+            expire_date = subscriber.get("expire_date")
+
+            if self.send_sms(phone, plate, expire_date):
+                success_count += 1
+            else:
+                failed_count += 1
+
+        logger.info(
+            f"Bulk SMS: {success_count} success, {failed_count} failed"
+        )
+
+        return {
+            "success": success_count,
+            "failed": failed_count
+        }
