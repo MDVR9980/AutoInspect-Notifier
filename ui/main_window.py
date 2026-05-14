@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QPushButton, QTableWidget, QTableWidgetItem, QLabel, QLineEdit,
     QMessageBox, QFileDialog, QGroupBox, QFormLayout, QHeaderView,
-    QStatusBar, QToolBar, QDialog, QDialogButtonBox, QTextEdit
+    QStatusBar, QToolBar, QDialog, QDialogButtonBox, QTextEdit, QBoxLayout
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction
@@ -20,6 +20,7 @@ from core.sms_api import SMSManager
 from core.backup_manager import BackupManager
 from utils.excel_importer import ExcelImporter
 from tasks.auto_task import AutoTaskManager
+from tasks.scheduler import TaskScheduler
 from ui.styles import Styles
 import settings
 
@@ -54,6 +55,7 @@ class MainWindow(QMainWindow):
     
     def init_ui(self):
         """راه‌اندازی رابط کاربری"""
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.setWindowTitle("AutoInspect Notifier - سیستم یادآوری معاینه فنی")
         self.setGeometry(100, 100, 1200, 700)
         
@@ -130,27 +132,32 @@ class MainWindow(QMainWindow):
         
         # بخش جستجو
         search_layout = QHBoxLayout()
-        search_label = QLabel("🔍 جستجو:")
+        search_layout.addStretch()
+        search_layout.setDirection(QBoxLayout.Direction.RightToLeft)
         self.search_input = QLineEdit()
+        self.search_input.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.search_input.setPlaceholderText("شماره موبایل یا پلاک...")
         self.search_input.textChanged.connect(self.search_subscribers)
+        self.search_input.setFixedWidth(350)
+
+        search_label = QLabel("🔍 جستجو:")
+        search_label.setAlignment(Qt.AlignmentFlag.AlignRight) 
         
         search_layout.addWidget(search_label)
         search_layout.addWidget(self.search_input)
-        
         layout.addLayout(search_layout)
         
         # جدول مشترکین
         self.subscribers_table = QTableWidget()
         self.subscribers_table.setColumnCount(7)
         self.subscribers_table.setHorizontalHeaderLabels([
-            "شناسه",
-            "شماره موبایل",
-            "پلاک",
-            "تاریخ مراجعه",
-            "تاریخ انقضا",
-            "وضعیت پیامک",
-            "تاریخ ایجاد"
+            "شناسه",         # id
+            "شماره موبایل",   # phone
+            "پلاک",          # plate
+            "تاریخ مراجعه",   # visit_date
+            "تاریخ انقضا",   # expire_date
+            "وضعیت پیامک",    # sms_status
+            "تاریخ ایجاد"     # created_at
         ])
         
         # تنظیمات جدول
@@ -200,7 +207,7 @@ class MainWindow(QMainWindow):
         
         # پلاک
         self.plate_input = QLineEdit()
-        self.plate_input.setPlaceholderText("12الف34567")
+        self.plate_input.setPlaceholderText("12 الف 123 ایران 12")
         
         # تاریخ مراجعه
         self.visit_date_input = QLineEdit()
@@ -215,6 +222,10 @@ class MainWindow(QMainWindow):
         self.add_button.clicked.connect(self.add_subscriber)
         
         form_layout.addRow(self.add_button)
+
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignRight)
+
         
         group_box.setLayout(form_layout)
         
@@ -231,7 +242,10 @@ class MainWindow(QMainWindow):
         
         group_box = QGroupBox("ورود اطلاعات از فایل اکسل")
         form_layout = QFormLayout()
-        
+
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_layout.setFormAlignment(Qt.AlignmentFlag.AlignRight)
+
         # مسیر فایل
         self.excel_path_input = QLineEdit()
         self.excel_path_input.setReadOnly(True)
@@ -268,11 +282,25 @@ class MainWindow(QMainWindow):
         
         self.subscribers_table.setRowCount(len(subscribers))
         
-        for row, subscriber in enumerate(subscribers):
-            for col, value in enumerate(subscriber):
-                item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.subscribers_table.setItem(row, col, item)
+        # تعریف ترتیب ستون‌ها و کلیدهای متناظر آن‌ها
+        column_mapping = {
+            0: "id",
+            1: "phone",
+            2: "plate",
+            3: "visit_date",
+            4: "expire_date",
+            5: "sms_status",
+            6: "created_at"
+        }
+        
+        for row_index, subscriber in enumerate(subscribers):
+            for col_index in range(self.subscribers_table.columnCount()):
+                db_key = column_mapping.get(col_index)
+                if db_key:
+                    value = subscriber.get(db_key, "") # از .get استفاده کنید که اگر کلید نبود خطا ندهد
+                    item = QTableWidgetItem(str(value))
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.subscribers_table.setItem(row_index, col_index, item)
         
         self.status_bar.showMessage(f"{len(subscribers)} مشترک بارگذاری شد")
     
@@ -289,11 +317,7 @@ class MainWindow(QMainWindow):
         try:
             self.db_manager.add_subscriber(phone, plate, visit_date)
             
-            QMessageBox.information(
-                self,
-                "موفق",
-                "مشترک با موفقیت ثبت شد"
-            )
+            self.show_info("موفق", "مشترک با موفقیت ثبت شد")
             
             self.phone_input.clear()
             self.plate_input.clear()
@@ -319,11 +343,24 @@ class MainWindow(QMainWindow):
         
         self.subscribers_table.setRowCount(len(subscribers))
         
-        for row, subscriber in enumerate(subscribers):
-            for col, value in enumerate(subscriber):
-                item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.subscribers_table.setItem(row, col, item)
+        column_mapping = {
+            0: "id",
+            1: "phone",
+            2: "plate",
+            3: "visit_date",
+            4: "expire_date",
+            5: "sms_status",
+            6: "created_at"
+        }
+        
+        for row_index, subscriber in enumerate(subscribers):
+            for col_index in range(self.subscribers_table.columnCount()):
+                db_key = column_mapping.get(col_index)
+                if db_key:
+                    value = subscriber.get(db_key, "")
+                    item = QTableWidgetItem(str(value))
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.subscribers_table.setItem(row_index, col_index, item)
     
     def delete_selected_subscriber(self):
         """حذف مشترک انتخاب شده"""
@@ -335,23 +372,11 @@ class MainWindow(QMainWindow):
         
         subscriber_id = self.subscribers_table.item(selected, 0).text()
         
-        reply = QMessageBox.question(
-            self,
-            "تأیید حذف",
-            "آیا مطمئن هستید؟",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
+        if self.ask_yes_no("تأیید حذف", "آیا مطمئن هستید؟"):
             self.db_manager.delete_subscriber(subscriber_id)
             self.load_subscribers()
             
-            QMessageBox.information(
-                self,
-                "موفق",
-                "مشترک حذف شد"
-            )
+            self.show_info("موفق", "مشترک حذف شد")
         
     def send_single_sms(self):
         """ارسال پیامک به مشترک انتخاب شده"""
@@ -373,11 +398,7 @@ class MainWindow(QMainWindow):
             if result:
                 self.db_manager.update_sms_status(subscriber_id, 'sent')
                 
-                QMessageBox.information(
-                    self,
-                    "موفق",
-                    "پیامک با موفقیت ارسال شد"
-                )
+                self.show_info("موفق", "پیامک با موفقیت ارسال شد")
                 
                 self.load_subscribers()
             else:
@@ -396,23 +417,14 @@ class MainWindow(QMainWindow):
     
     def clear_all_subscribers(self):
         """حذف همه مشترکین"""
-        reply = QMessageBox.question(
-            self,
+        if self.ask_yes_no(
             "تأیید حذف",
-            "⚠ آیا از حذف همه مشترکین مطمئن هستید؟\nاین عملیات غیرقابل بازگشت است!",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self.db_manager.clear_all_subscribers()
+            "⚠ آیا از حذف همه مشترکین مطمئن هستید؟\nاین عملیات غیرقابل بازگشت است!"
+        ):
+            self.db_manager.delete_all_subscribers()
             self.load_subscribers()
             
-            QMessageBox.information(
-                self,
-                "موفق",
-                "همه مشترکین حذف شدند"
-            )
+            self.show_info("موفق", "همه مشترکین حذف شدند")
     
     def select_excel_file(self):
         """انتخاب فایل اکسل"""
@@ -420,7 +432,7 @@ class MainWindow(QMainWindow):
             self,
             "انتخاب فایل اکسل",
             "",
-            "Excel Files (*.xlsx *.xls)"
+            "فایل‌های اکسل (*.xlsx *.xls)"
         )
         
         if file_path:
@@ -440,21 +452,29 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            data = self.excel_importer.read_excel(file_path)
+            # ابتدا داده‌ها را بخوانید
+            success_read, data, msg = self.excel_importer.read_excel(file_path)
+            
+            if not success_read:
+                QMessageBox.warning(self, "خطا", msg)
+                return
+            
+            # حالا با استفاده از extract_phone_and_plate شماره موبایل و پلاک را استخراج کنید
+            extracted_data = self.excel_importer.extract_phone_and_plate(data)
             
             success_count = 0
             error_count = 0
             
-            for row in data:
-                phone = row.get('phone', '').strip()
-                plate = row.get('plate', '').strip()
-                
-                if phone and plate:
+            # داده‌های استخراج شده را به دیتابیس اضافه کنید
+            for phone, plate in extracted_data:
+                if phone and plate: # اطمینان حاصل کنید که هر دو مورد پیدا شده‌اند
                     try:
+                        # اینجا از شماره موبایل و پلاک استخراج شده استفاده می‌کنیم
                         self.db_manager.add_subscriber(phone, plate, visit_date)
                         success_count += 1
-                    except:
+                    except Exception as e:
                         error_count += 1
+                        print(f"Error adding subscriber: {phone}, {plate} - {e}") # برای دیباگ
             
             QMessageBox.information(
                 self,
@@ -479,10 +499,7 @@ class MainWindow(QMainWindow):
         try:
             backup_path = self.backup_manager.create_backup()
             
-            QMessageBox.information(
-                self, "موفق",
-                f"بکاپ ایجاد شد:\n{backup_path}"
-            )
+            self.show_info("موفق", f"بکاپ ایجاد شد:\n{backup_path}")
             
             self.status_bar.showMessage("بکاپ با موفقیت ایجاد شد")
         
@@ -499,29 +516,20 @@ class MainWindow(QMainWindow):
             self,
             "انتخاب فایل بکاپ",
             "",
-            "Database Files (*.db *.sqlite)"
+            "فایل‌های دیتابیس (*.db *.sqlite)"
         )
         
         if not file_path:
             return
         
-        reply = QMessageBox.question(
-            self,
+        if self.ask_yes_no(
             "تأیید بازیابی",
-            "آیا از بازیابی بکاپ مطمئن هستید؟\nاطلاعات فعلی جایگزین خواهند شد.",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
+            "آیا از بازیابی بکاپ مطمئن هستید؟\nاطلاعات فعلی جایگزین خواهند شد."
+        ):
             try:
                 self.backup_manager.restore_backup(file_path)
                 
-                QMessageBox.information(
-                    self,
-                    "موفق",
-                    "بکاپ با موفقیت بازیابی شد"
-                )
+                self.show_info("موفق", "بکاپ با موفقیت بازیابی شد")
                 
                 self.load_subscribers()
                 
@@ -577,14 +585,70 @@ class MainWindow(QMainWindow):
         
         event.accept()
 
+    def ask_yes_no(self, title, text) -> bool:
+        """نمایش پیغام سؤال با دکمه‌های فارسی بله/خیر و برگرداندن نتیجه"""
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setText(text)
+        msg.setIcon(QMessageBox.Icon.Question)
+
+        yes_btn = msg.addButton("بله", QMessageBox.ButtonRole.YesRole)
+        no_btn = msg.addButton("خیر", QMessageBox.ButtonRole.NoRole)
+
+        msg.exec()
+
+        return msg.clickedButton() == yes_btn
+
+    def show_info(self, title: str, message: str):
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle(title)
+        msg.setText(message)
+
+        # راست‌چین و RTL
+        msg.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        msg.setTextFormat(Qt.TextFormat.PlainText)
+
+        # دکمه OK فارسی
+        ok_button = msg.addButton("باشه", QMessageBox.ButtonRole.AcceptRole)
+        ok_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        msg.exec()
+
+    def show_warning(self, title: str, message: str):
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle(title)
+        msg.setText(message)
+
+        msg.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        msg.addButton("باشه", QMessageBox.ButtonRole.AcceptRole)
+
+        msg.exec()
+    
+    def show_error(self, title: str, message: str):
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle(title)
+        msg.setText(message)
+
+        msg.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        msg.addButton("باشه", QMessageBox.ButtonRole.AcceptRole)
+
+        msg.exec()
 
 if __name__ == "__main__":
     from PyQt6.QtWidgets import QApplication
     
     app = QApplication(sys.argv)
     
-    window = MainWindow()
+    db = DatabaseManager(str(settings.DATABASE_PATH))
+    sms_manager = SMSManager(settings.SMS_API_KEY, settings.SMS_LINE_NUMBER)
+    scheduler = TaskScheduler(db, sms_manager)
+    window = MainWindow(db, scheduler)
     window.show()
+
+    # شروع تایمرهای پس‌زمینه
+    scheduler.start_daily_task()
     
     sys.exit(app.exec())
-

@@ -369,3 +369,29 @@ class DatabaseManager:
 
         except Exception as e:
             logger.error(f"Close connection error: {e}")
+
+    def search_subscribers(self, text: str) -> List[Dict]:
+        """
+        جستجوی مشترکین بر اساس شماره موبایل یا پلاک
+        """
+        try:
+            cursor = self.connection.cursor()
+
+            query = """
+                SELECT id, phone, plate, visit_date, expire_date, sms_status, created_at
+                FROM subscribers
+                WHERE phone LIKE ? OR plate LIKE ?
+                ORDER BY id DESC
+            """
+
+            pattern = f"%{text}%"
+            cursor.execute(query, (pattern, pattern))
+
+            rows = cursor.fetchall()
+
+            # تبدیل خروجی از Row به dict
+            return [dict(row) for row in rows]
+
+        except Exception as e:
+            logger.error(f"Search error: {e}")
+            return []
