@@ -14,3 +14,7 @@ schedule==1.2.2
 python-dateutil==2.9.0.post0
 
 xlsxwriter==3.2.0
+
+cryptography
+
+pillow

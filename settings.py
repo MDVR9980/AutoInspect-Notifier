@@ -10,6 +10,7 @@ DATA_DIR = BASE_DIR / "data"
 BACKUP_DIR = DATA_DIR / "backups"
 ASSETS_DIR = DATA_DIR / "assets"
 ICONS_DIR = ASSETS_DIR / "icons"
+LOGOS_DIR = ASSETS_DIR / "logos"
 EXPORTS_DIR = BASE_DIR / "exports"
 LOGS_DIR = BASE_DIR / "logs"
 
@@ -55,3 +56,4 @@ EXCEL_COLUMNS = {
 
 # آیکون برنامه
 APP_ICON = ICONS_DIR / "app_icon.ico"
+PRIMARY_LOGO = LOGOS_DIR / "PrimaryLogo.png"
