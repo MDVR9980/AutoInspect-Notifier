@@ -5,6 +5,7 @@ import logging
 from datetime import timedelta
 
 import jdatetime
+from apscheduler.schedulers.base import STATE_RUNNING
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -244,19 +245,18 @@ class TaskScheduler:
             return []
 
     def shutdown(self):
-        """توقف زمان‌بند"""
+        """توقف امن زمان‌بند"""
 
         try:
+            # جلوگیری از اجرای دوباره
+            if self.scheduler.state != STATE_RUNNING:
+                logger.info("زمان‌بند قبلاً متوقف شده است")
+                return True
+            
             self.scheduler.shutdown(wait=False)
-
             logger.info("زمان‌بند متوقف شد")
-
             return True
 
         except Exception as e:
             logger.error(f"خطا در توقف زمان‌بند: {str(e)}")
             return False
-        
-    def stop(self):
-        """متوقف کردن زمان‌بند"""
-        return self.shutdown()

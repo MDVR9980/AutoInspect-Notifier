@@ -1,0 +1,157 @@
+فونت نهایی vazirmatn خوبه راضی ام ازش...
+پارت رنگی هم اینا خوبن:
+Light Mode
+Primary: #2979FF
+Primary Hover: #1E5DD8
+Background: #F5F7FA
+Cards: #FFFFFF
+Borders: #E5E7EB
+Text Main: #1F2937
+Text Secondary: #6B7280
+Dark Mode
+Background: #0E0E0F
+Card: #161618
+Border: #2A2A2D
+Primary: #4C8BFF
+Text Main: #EDEDED
+Text Secondary: #A0A0A0
+
+
+اینم عالیه:
+③ radius ثابت در همه UI
+text
+Buttons → 10px  
+Cards → 16px  
+Inputs → 8px  
+Logo container → 20px
+
+اینم عالیه:
+④ سایه ثابت (shadow elevation)
+small shadow: dialogs
+medium shadow: cards
+high shadow: headers
+
+
+
+محشره :
+🎯 فاز ۲ — ایجاد “Global Style System” (سیستم استایل جهانی)
+به جای اینکه در هر پنجره دستی styleSheet بدی، یک سیستم استایل به نام:
+
+text
+ui/styles.py
+می‌سازیم که شامل:
+
+QSS theme
+spacing
+radius
+primary color
+dark/light mode auto
+
+
+همه پنجره‌ها یک شکل و یک تم را ارث‌ببریند.
+
+می‌خواهی من فایل کامل styles.py را با QSS حرفه‌ای بنویسم؟
+
+(سطح VSCode و JetBrains)
+
+اره بکن.
+
+
+🎯 فاز ۳ — تبدیل هر پنجره به “Card-Layout UI”
+الان UI تو با کادرها و layout دستی ساخته شده. اما برای Ultra Professional:
+
+همه پنجره‌ها باید card-base design بشن
+فاصله داخلی دقیق تنظیم بشه
+عنوان‌ها Typographic scale داشته باشن
+آیکون‌ها unified بشن
+من UI زیر را اصلاح می‌کنم:
+
+✔ پنجره اصلی (MainWindow)
+
+✔ پنجره لایسنس
+
+✔ پنجره فعال‌سازی (Activation)
+
+✔ پنجره درباره نرم‌افزار
+
+✔ دیالوگ‌های پیام
+
+✔ اسپلش اولیه
+
+محشره.
+
+
+
+🎯 فاز ۴ — ایجاد Component Library (کتابخانه کامپوننت)
+چیزی شبیه Material / Fluent UI.
+
+در این مرحله ما کلاس‌های زیر را می‌سازیم:
+
+UIPushButton (دکمه‌های استاندارد)
+UICard (کارت‌های یکپارچه)
+UITextField (فیلدهای مدرن)
+UIToggleSwitch
+UISeparator
+UICheckbox
+UIMainWindowBase
+UIRoundedDialog
+با این کار:
+
+تمام UI یکنواخت و یک‌دست می‌شه
+
+بدون اینکه لازم باشه هزار بار styleSheet دستی بنویسی.
+
+
+خیلی هم عالی .
+
+
+🎯 فاز ۵ — انیمیشن‌های حرفه‌ای
+چیزهایی که در UI PRO لازم‌اند:
+
+fade in/out برای پنجره‌ها
+drop shadow animation
+smooth hover برای دکمه‌ها
+highlight animation برای کارت‌ها
+transition هنگام باز شدن dialog
+من برات همه رو اضافه می‌کنم.
+
+عالیه...
+
+
+🎯 فاز ۶ — Ultra Splash Screen
+به اسپلش فعلی:
+
+glow soft
+fade animation
+loading indicator
+progress bar اپل‌مانند
+می‌تونیم اضافه کنیم.
+
+
+خیلی خوبه.
+
+
+
+🎯 فاز ۷ — Iconography Modernization
+اگر بخوای، Icon Pack اختصاصی با همان سبک طراحی لوگو برنامه‌ات برات می‌سازم:
+
+Dashboard
+Settings
+Import
+Support
+License
+Exit
+Notification
+
+محشره...
+
+
+
+
+فاز ۱ :‌ 
+فاز ۲ :
+فاز ۳‌ :
+فاز ۴ :
+فاز ۵ :
+فاز ۶ :
+فاز ۷ :

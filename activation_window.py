@@ -85,27 +85,30 @@ class ActivationWindow(QWidget):
             return
 
         ok, message = self.license_manager.activate(key)
+
         if ok:
             QMessageBox.information(self, "موفق", message)
+
+            # ✅ بروزرسانی خودکار MainWindow
+            for widget in QApplication.topLevelWidgets():
+                if hasattr(widget, "refresh_license_status"):
+                    widget.refresh_license_status()
+                    widget.update_feature_access()
+
             self.close()
+
         else:
             QMessageBox.critical(self, "خطا", message)
 
-
 def show_activation_window():
-    """نمایش پنجره فعال‌سازی برای main.py"""
-    app = QApplication.instance()
-    created_app = False
+    """نمایش پنجره فعال‌سازی"""
 
-    if app is None:
-        app = QApplication([])
-        created_app = True
+    app = QApplication.instance()
 
     window = ActivationWindow()
     window.setWindowModality(Qt.WindowModality.ApplicationModal)
     window.show()
 
-    app.exec()
+    app.activation_window = window
 
-    if created_app:
-        app.quit()
+    return window

@@ -21,10 +21,13 @@ class AutoTaskManager:
     def start(self):
         """شروع زمان‌بندی خودکار وظایف"""
         try:
-            self.scheduler.start()
-            self.scheduler.start_daily_task()
+            if not self.scheduler.scheduler.running:
+                self.scheduler.start()
+                self.scheduler.start_daily_task()
+
             print("✓ Auto Task Manager started successfully")
             return True
+
         except Exception as e:
             print(f"✗ Error starting Auto Task Manager: {e}")
             return False
@@ -32,9 +35,12 @@ class AutoTaskManager:
     def stop(self):
         """توقف زمان‌بندی خودکار وظایف"""
         try:
-            self.scheduler.shutdown()
+            if hasattr(self.scheduler, "scheduler") and self.scheduler.scheduler.running:
+                self.scheduler.shutdown(wait=False)
+
             print("✓ Auto Task Manager stopped successfully")
             return True
+
         except Exception as e:
             print(f"✗ Error stopping Auto Task Manager: {e}")
             return False

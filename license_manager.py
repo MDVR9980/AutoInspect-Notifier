@@ -11,13 +11,13 @@ from cryptography.hazmat.primitives.asymmetric import padding
 
 
 PUBLIC_KEY_B64 = """
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsfH35yENLLeaYp6NbTNW
-oy8+3UR05ID9iINWMntBw5EM2HLO2f7di2T5OwqOxi+LKoTHXuE5RBl0ATzQVcd2
-xbWbCDCXX87ZMGOnsgVK00LnygWOFvuYGp2/t9OaCTpQHNY6QjFucBc2AFOyMCtD
-fkXe6sZ11w5yY2VcQ1RVIiLgTnxiPRDsAKQOsmpSNSC8B4IBs+w9qac6B5Mx5JYl
-yWF3xxNC7B/QjAn45zyID+eyHxA2ggpmkTsLD209/ec8vyh3t/k/vHUmifFT+lhu
-g6p1flVKSzZ2OWh/A+y5dF8UNQrtWVk1knwGBzkKUnxDFa3/6jL+nzDsSH7K4D06
-1wIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvcb8VfwPsP6ovNtQ1epr
+A+fVYuuBCkVGLPuZ2nwfwT91GNvUmdqGBAu+ryDA1Arybwqy0+NMMMiqIZ3oLNLB
+mjWQOzAFkwr2hHbD878wmMpKib+XiQFaZQuZTSSli0eiSVaKn0B7UxwTX+AU3+lA
+EomChZLzIiLB1p/4YakjZMLpsVm0z7AJjdtlPjpbirQFMexIQfP2jJ4Iy7lWvW+p
+ONUJ43I8Sa6jbY8d8ssyiL3s4WmUg1PMjqnU5nW7ynymdrv+zrJtu/nQldCH5Rv1
+5/ih7nxvTsspZLo3xpupu+0zNIpwUS+xec44boK+6imgMdPlOUoGQ3MYQ/O6jYh2
+bwIDAQAB
 """
 
 LICENSE_FILE = "C:/ProgramData/AutoInspectNotifier/license.dat"

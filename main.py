@@ -1,14 +1,39 @@
-import ctypes, sys, logging, time
-from pathlib import Path
-from PyQt6.QtWidgets import QApplication, QWidget
-from PyQt6.QtGui import QIcon, QPixmap, QFont, QColor, QPainter
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
-
+import os
+import sys
+import ctypes
+import logging
+import time
 import settings
+
+from ui.styles import Styles
+
+# ---------------------------------------------------------
+# Qt logging fixes
+# ---------------------------------------------------------
+os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.*=false"
+
+# ---------------------------------------------------------
+# Windows DPI awareness
+# ---------------------------------------------------------
+if sys.platform == "win32":
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QIcon, QFontDatabase, QFont
+from PyQt6.QtCore import QTimer
+
 from core.db_manager import DatabaseManager
-from ui.main_window import MainWindow
-from tasks.auto_task import AutoTaskManager
 from core.sms_api import SMSManager
+
+from ui.main_window import MainWindow
+from ui.splash_ultra import UltraSplash
+
+from tasks.auto_task import AutoTaskManager
+
 from license_manager import LicenseManager
 from activation_window import show_activation_window
 
@@ -18,127 +43,11 @@ DEVELOPER_HWID = "e0ae2d59f6c1d75381c78cb6f7f1ebdf67eba39960e494977149284a64f053
 
 
 # ---------------------------------------------------------
-# Custom Splash Screen
-# ---------------------------------------------------------
-class CustomSplash(QWidget):
-    def __init__(self, logo_path):
-        super().__init__()
-
-        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(500, 500)
-
-        # Opacity
-        self.setWindowOpacity(0.0)
-
-        # Load Logo
-        pix = QPixmap(str(logo_path))
-        if pix.isNull():
-            print("Splash ERROR: Logo not found ->", logo_path)
-            self.logo = None
-        else:
-            self.logo = pix.scaled(
-                260, 260,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-
-        # Fade In
-        self.fade_in_anim = QPropertyAnimation(self, b"windowOpacity")
-        self.fade_in_anim.setDuration(700)
-        self.fade_in_anim.setStartValue(0.0)
-        self.fade_in_anim.setEndValue(1.0)
-        self.fade_in_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-
-        # Fade Out
-        self.fade_out_anim = QPropertyAnimation(self, b"windowOpacity")
-        self.fade_out_anim.setDuration(450)
-        self.fade_out_anim.setStartValue(1.0)
-        self.fade_out_anim.setEndValue(0.0)
-        self.fade_out_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-
-        # Animated dots
-        self.message = ""
-        self.dots = 0
-        self.dot_timer = QTimer(self)
-        self.dot_timer.timeout.connect(self.update_dots)
-        self.dot_timer.start(350)
-
-    def update_dots(self):
-        self.dots = (self.dots + 1) % 4
-        self.update()
-
-    def show_message(self, text):
-        self.message = text
-        self.update()
-
-    # Fade control
-    def fade_in(self):
-        self.fade_in_anim.start()
-
-    def fade_out_and_close(self, callback):
-        def done():
-            self.close()
-            if callback:
-                callback()
-        self.fade_out_anim.finished.connect(done)
-        self.fade_out_anim.start()
-
-    # Paint Event
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        bg = QColor(255, 255, 255, 245)
-        painter.setBrush(bg)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(self.rect(), 22, 22)
-
-        # Logo
-        if self.logo:
-            x = (self.width() - self.logo.width()) // 2
-            y = (self.height() - self.logo.height()) // 2 - 35
-            painter.drawPixmap(x, y, self.logo)
-
-        # Message
-        painter.setFont(QFont("Segoe UI", 11))
-        painter.setPen(QColor(20, 20, 20))
-
-        msg = f"{self.message}{'.' * self.dots}"
-        painter.drawText(
-            0, self.height() - 60,
-            self.width(), 40,
-            Qt.AlignmentFlag.AlignCenter,
-            msg
-        )
-
-
-# ---------------------------------------------------------
-# Splash Factory
-# ---------------------------------------------------------
-def create_splash(app):
-    logo = settings.PRIMARY_LOGO
-    splash = CustomSplash(logo)
-
-    # Center
-    screen = app.primaryScreen().availableGeometry()
-    splash.move(
-        screen.center().x() - splash.width() // 2,
-        screen.center().y() - splash.height() // 2
-    )
-
-    splash.show()
-    splash.fade_in()
-    app.processEvents()
-
-    return splash
-
-
-# ---------------------------------------------------------
 # Logging
 # ---------------------------------------------------------
 def setup_logging():
     settings.LOGS_DIR.mkdir(exist_ok=True)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -147,40 +56,143 @@ def setup_logging():
             logging.StreamHandler(),
         ],
     )
+
     return logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------
+# Splash Factory
+# ---------------------------------------------------------
+def create_splash(app):
+    splash = UltraSplash(settings.PRIMARY_LOGO_SVG)
+
+    try:
+        screen = app.primaryScreen().availableGeometry()
+
+        splash.move(
+            screen.center().x() - splash.width() // 2,
+            screen.center().y() - splash.height() // 2
+        )
+
+        splash.show()
+        splash.start()
+
+        app.processEvents()
+
+    except Exception:
+        pass
+
+    return splash
+
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    logging.error(
+        "Uncaught exception",
+        exc_info=(exc_type, exc_value, exc_traceback)
+    )
+
+
+sys.excepthook = handle_exception
+
+
+# ---------------------------------------------------------
+# Load Fonts
+# ---------------------------------------------------------
+def load_fonts():
+    font_paths = [
+        "fonts/Vazirmatn-Regular.ttf",
+        "fonts/Vazirmatn-Medium.ttf",
+        "fonts/Vazirmatn-Bold.ttf"
+    ]
+
+    for path in font_paths:
+        if os.path.exists(path):
+            QFontDatabase.addApplicationFont(path)
+
+
+# ---------------------------------------------------------
+# Apply Global Styles
+# ---------------------------------------------------------
+def apply_styles(app):
+
+    ui = Styles("light")
+
+    stylesheet = (
+        ui.get_app_style() +
+        ui.get_card_style() +
+        ui.get_button_style() +
+        ui.get_input_style() +
+        ui.get_table_style() +
+        ui.get_tab_style() +
+        ui.get_scrollbar_style() +
+        ui.get_menu_style() +
+        ui.get_checkbox_style() +
+        ui.get_tooltip_style() +
+        ui.get_progress_style() +
+        ui.get_dialog_style()
+    )
+
+    app.setStyleSheet(stylesheet)
 
 
 # ---------------------------------------------------------
 # Main
 # ---------------------------------------------------------
 def main():
+
     logger = setup_logging()
     logger.info("شروع برنامه")
 
-    try:
-        # Fix Taskbar Icon
-        try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                u"AutoInspect.Notifier.App"
-            )
-        except Exception:
-            pass
+    auto_task_manager = None
 
+    try:
+
+        # -------------------------------------------------
+        # Fix Windows Taskbar Icon
+        # -------------------------------------------------
+        if sys.platform == "win32":
+            try:
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    u"AutoInspect.Notifier.App"
+                )
+            except Exception:
+                pass
+
+        # -------------------------------------------------
+        # QApplication
+        # -------------------------------------------------
         app = QApplication(sys.argv)
+
         app.setApplicationName(settings.APP_NAME)
         app.setApplicationVersion(settings.APP_VERSION)
 
-        if settings.APP_ICON.exists():
-            app.setWindowIcon(QIcon(str(settings.APP_ICON)))
+        # -------------------------------------------------
+        # Fonts
+        # -------------------------------------------------
+        load_fonts()
+        app.setFont(QFont("Vazirmatn", 10))
+
+        # -------------------------------------------------
+        # Global Styles
+        # -------------------------------------------------
+        apply_styles(app)
+
+        # -------------------------------------------------
+        # App Icon
+        # -------------------------------------------------
+        if settings.APP_ICON_ICO.exists():
+            app.setWindowIcon(QIcon(str(settings.APP_ICON_ICO)))
 
         splash_start = time.time()
 
+        # -------------------------------------------------
         # Splash
+        # -------------------------------------------------
         splash = create_splash(app)
-        splash.show_message("Loading modules")
 
-        # License
-        splash.show_message("Checking license")
+        # -------------------------------------------------
+        # License Check
+        # -------------------------------------------------
         lm = LicenseManager()
 
         if DEV_MODE and lm.get_hwid() == DEVELOPER_HWID:
@@ -189,46 +201,76 @@ def main():
             ok, _ = lm.check_valid()
 
         if not ok:
+
             splash.close()
+
             show_activation_window()
+
             ok, _ = lm.check_valid()
+
             if not ok:
                 logger.error("Activation failed.")
                 return 1
 
+        # -------------------------------------------------
         # Database
-        splash.show_message("Loading database")
+        # -------------------------------------------------
         db = DatabaseManager(settings.DATABASE_PATH)
 
+        # -------------------------------------------------
         # SMS
-        sms_manager = SMSManager(settings.SMS_API_KEY, settings.SMS_LINE_NUMBER)
+        # -------------------------------------------------
+        sms_manager = SMSManager(
+            settings.SMS_API_KEY,
+            settings.SMS_LINE_NUMBER
+        )
 
+        # -------------------------------------------------
         # Tasks
+        # -------------------------------------------------
         auto_task_manager = AutoTaskManager(db, sms_manager)
         auto_task_manager.start()
 
-        # Prepare Main Window
+        # -------------------------------------------------
+        # Main Window
+        # -------------------------------------------------
         window = MainWindow(db, auto_task_manager)
         window.setWindowTitle(settings.APP_NAME)
 
-        min_duration = 1.8  
+        # -------------------------------------------------
+        # Minimum splash duration
+        # -------------------------------------------------
+        min_duration = 1.8
         elapsed = time.time() - splash_start
         delay_ms = max(0, int((min_duration - elapsed) * 1000))
 
-        # Show Main After Splash Fade
         def open_main():
-            window.show()
+            if not window.isVisible():
+                window.show()
 
-        QTimer.singleShot(delay_ms, lambda: splash.fade_out_and_close(open_main))
+        QTimer.singleShot(delay_ms, lambda: splash.close_splash())
+        splash.finished.connect(open_main)
 
+        # -------------------------------------------------
         # Execute
+        # -------------------------------------------------
         exit_code = app.exec()
-        auto_task_manager.stop()
+
         return exit_code
 
     except Exception as e:
+
         logger.error(f"Fatal Error: {e}", exc_info=True)
         return 1
+
+    finally:
+
+        if auto_task_manager:
+            try:
+                auto_task_manager.stop()
+                logger.info("AutoTaskManager stopped")
+            except Exception as e:
+                logger.warning(f"AutoTaskManager stop ignored: {e}")
 
 
 if __name__ == "__main__":
